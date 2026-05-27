@@ -28,6 +28,9 @@ jobs:
           - os: ubuntu-latest
             asset: topa-linux-x64
             binary: target/release/topa
+          - os: ubuntu-24.04-arm
+            asset: topa-linux-arm64
+            binary: target/release/topa
           - os: macos-13
             asset: topa-darwin-x64
             binary: target/release/topa

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Add local VSIX packaging metadata and documentation.
+
 ## 0.1.0
 
 - Add a read-only Tarae sidebar for local session history.

@@ -32,7 +32,7 @@ jobs:
           - os: ubuntu-24.04-arm
             asset: topa-linux-arm64
             binary: target/release/topa
-          - os: macos-13
+          - os: macos-15-intel
             asset: topa-darwin-x64
             binary: target/release/topa
           - os: macos-latest

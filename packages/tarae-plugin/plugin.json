@@ -1,0 +1,10 @@
+{
+  "name": "tarae-plugin",
+  "version": "1.0.0",
+  "description": "Local-first MCP lifecycle guidance for Tarae topa session history.",
+  "author": {
+    "name": "Tarae Team"
+  },
+  "repository": "https://github.com/InsightFrom/tarae",
+  "license": "MIT"
+}

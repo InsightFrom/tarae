@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_URL="${TARAE_REPO_URL:-https://github.com/InsightFrom/tarae.git}"
+REF="${TARAE_REF:-main}"
+INSTALL_DIR="${TARAE_INSTALL_DIR:-$HOME/.tarae/src/tarae}"
+BIN_DIR="${TARAE_BIN_DIR:-$HOME/.tarae/bin}"
+
+need() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+need git
+need node
+need npm
+need cargo
+
+echo "Installing Tarae from $REPO_URL ($REF)"
+mkdir -p "$BIN_DIR" "$(dirname "$INSTALL_DIR")"
+
+if [ -d "$INSTALL_DIR/.git" ]; then
+  git -C "$INSTALL_DIR" fetch --tags origin
+  git -C "$INSTALL_DIR" checkout "$REF"
+  git -C "$INSTALL_DIR" pull --ff-only origin "$REF" || true
+else
+  git clone --branch "$REF" "$REPO_URL" "$INSTALL_DIR"
+fi
+
+echo "Building topa"
+cargo build --release --manifest-path "$INSTALL_DIR/packages/watcher/Cargo.toml"
+
+echo "Installing CLI dependencies"
+npm install --omit=dev --prefix "$INSTALL_DIR/packages/cli"
+
+echo "Preparing local binaries"
+TARAE_DEV=true node "$INSTALL_DIR/packages/cli/bin/index.js" init
+
+cat > "$BIN_DIR/tarae" <<EOF
+#!/usr/bin/env bash
+exec node "$INSTALL_DIR/packages/cli/bin/index.js" "\$@"
+EOF
+chmod +x "$BIN_DIR/tarae"
+
+echo
+echo "Tarae installed."
+echo "Add this to your shell profile if needed:"
+echo "  export PATH=\"$BIN_DIR:\$PATH\""
+echo
+echo "Next:"
+echo "  $BIN_DIR/tarae install --agent codex --project-root \"\$PWD\""

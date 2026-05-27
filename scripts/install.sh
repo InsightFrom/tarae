@@ -35,7 +35,7 @@ if [ -z "${TARAE_TOPA_DOWNLOAD_BASE_URL:-}" ] && [[ "$REF" == v* ]]; then
   export TARAE_TOPA_DOWNLOAD_BASE_URL="https://github.com/InsightFrom/tarae/releases/download/$REF"
 fi
 
-echo "Downloading topa release binary"
+echo "Downloading topa release archive"
 TARAE_DEV=false TARAE_FORCE_TOPA_DOWNLOAD=true node "$INSTALL_DIR/packages/cli/bin/index.js" init
 
 cat > "$BIN_DIR/tarae" <<EOF

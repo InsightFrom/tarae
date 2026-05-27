@@ -29,20 +29,25 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            asset: topa-linux-x64
+            asset: topa-linux-x64.tar.gz
             binary: target/release/topa
+            package_binary: topa
           - os: ubuntu-24.04-arm
-            asset: topa-linux-arm64
+            asset: topa-linux-arm64.tar.gz
             binary: target/release/topa
+            package_binary: topa
           - os: macos-15-intel
-            asset: topa-darwin-x64
+            asset: topa-darwin-x64.tar.gz
             binary: target/release/topa
+            package_binary: topa
           - os: macos-latest
-            asset: topa-darwin-arm64
+            asset: topa-darwin-arm64.tar.gz
             binary: target/release/topa
+            package_binary: topa
           - os: windows-latest
-            asset: topa-windows-x64.exe
+            asset: topa-windows-x64.tar.gz
             binary: target/release/topa.exe
+            package_binary: topa.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -54,8 +59,9 @@ jobs:
       - name: Prepare asset
         shell: bash
         run: |
-          mkdir -p dist
-          cp "packages/watcher/${{ matrix.binary }}" "dist/${{ matrix.asset }}"
+          mkdir -p dist package
+          cp "packages/watcher/${{ matrix.binary }}" "package/${{ matrix.package_binary }}"
+          tar -czf "dist/${{ matrix.asset }}" -C package "${{ matrix.package_binary }}"
       - name: Generate checksum
         shell: bash
         run: |

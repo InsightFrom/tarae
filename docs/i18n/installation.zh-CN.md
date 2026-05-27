@@ -6,7 +6,7 @@
 
 - `git`
 - Node.js 18+ 和 `npm`
-- 用于下载预构建 `topa` 二进制文件的 GitHub Releases 访问权限
+- 用于下载预构建 `topa` 归档文件的 GitHub Releases 访问权限
 - 可以启动本地 MCP 服务器的 AI 应用或 Agent
 
 ## 快速开始

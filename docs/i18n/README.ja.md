@@ -8,7 +8,7 @@ Tarae は AI コーディングセッションの意図、チェックポイン�
 
 ## クイックスタート
 
-必要なツール: `git`, Node.js 18+ と `npm`, GitHub Releases にアクセスできるネットワーク。
+必要なツール: `git`, Node.js 18+ と `npm`, GitHub Releases のビルド済み `topa` アーカイブにアクセスできるネットワーク。
 
 macOS / Linux:
 

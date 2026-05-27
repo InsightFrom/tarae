@@ -2,7 +2,7 @@
   "name": "tarae",
   "displayName": "Tarae",
   "description": "Read local Tarae coding-session history from a VS Code sidebar.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "insightfrom",
   "license": "MIT",
   "repository": {

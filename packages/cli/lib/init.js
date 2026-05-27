@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import dotenv from 'dotenv';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import zlib from 'zlib';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,19 +15,19 @@ function topaAssetName() {
   const arch = process.arch;
 
   if (platform === 'darwin' && arch === 'arm64') {
-    return 'topa-darwin-arm64';
+    return 'topa-darwin-arm64.tar.gz';
   }
   if (platform === 'darwin' && arch === 'x64') {
-    return 'topa-darwin-x64';
+    return 'topa-darwin-x64.tar.gz';
   }
   if (platform === 'linux' && arch === 'x64') {
-    return 'topa-linux-x64';
+    return 'topa-linux-x64.tar.gz';
   }
   if (platform === 'linux' && arch === 'arm64') {
-    return 'topa-linux-arm64';
+    return 'topa-linux-arm64.tar.gz';
   }
   if (platform === 'win32' && arch === 'x64') {
-    return 'topa-windows-x64.exe';
+    return 'topa-windows-x64.tar.gz';
   }
 
   throw new Error(`Unsupported platform for topa binary: ${platform}/${arch}`);
@@ -41,17 +42,69 @@ async function downloadTopaBinary(destinationPath) {
   const downloadUrl = process.env.TARAE_TOPA_DOWNLOAD_URL
     || `${process.env.TARAE_TOPA_DOWNLOAD_BASE_URL || 'https://github.com/InsightFrom/tarae/releases/latest/download'}/${assetName}`;
 
-  console.log(chalk.blue(`Downloading topa binary from: ${downloadUrl}`));
+  console.log(chalk.blue(`Downloading topa release archive from: ${downloadUrl}`));
   const res = await fetch(downloadUrl);
   if (!res.ok) {
-    throw new Error(`Failed to download topa binary (${res.status}). URL: ${downloadUrl}`);
+    throw new Error(`Failed to download topa release archive (${res.status}). URL: ${downloadUrl}`);
   }
 
   const bytes = Buffer.from(await res.arrayBuffer());
-  fs.writeFileSync(destinationPath, bytes);
+  const binary = assetName.endsWith('.tar.gz') || downloadUrl.endsWith('.tar.gz')
+    ? extractBinaryFromTarGz(bytes, topaBinaryName())
+    : bytes;
+  fs.writeFileSync(destinationPath, binary);
   fs.chmodSync(destinationPath, 0o755);
   clearMacQuarantine(destinationPath);
   console.log(chalk.green(`topa binary downloaded to: ${destinationPath}`));
+}
+
+function extractBinaryFromTarGz(bytes, binaryName) {
+  const tar = zlib.gunzipSync(bytes);
+  let offset = 0;
+
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    if (isEmptyTarBlock(header)) {
+      break;
+    }
+
+    const name = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155);
+    const entryPath = prefix ? `${prefix}/${name}` : name;
+    const size = readTarSize(header);
+    const typeflag = header[156];
+    const contentStart = offset + 512;
+    const contentEnd = contentStart + size;
+
+    if ((typeflag === 0 || typeflag === 48) && path.basename(entryPath) === binaryName) {
+      return tar.subarray(contentStart, contentEnd);
+    }
+
+    offset = contentStart + Math.ceil(size / 512) * 512;
+  }
+
+  throw new Error(`topa binary not found in release archive. Expected: ${binaryName}`);
+}
+
+function isEmptyTarBlock(block) {
+  for (const byte of block) {
+    if (byte !== 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function readTarString(header, start, length) {
+  return header
+    .subarray(start, start + length)
+    .toString('utf8')
+    .replace(/\0.*$/, '');
+}
+
+function readTarSize(header) {
+  const rawSize = readTarString(header, 124, 12).trim();
+  return rawSize ? Number.parseInt(rawSize, 8) : 0;
 }
 
 function clearMacQuarantine(filePath) {

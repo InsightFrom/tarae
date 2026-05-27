@@ -8,7 +8,7 @@ Tarae 会把 AI 编码会话的意图、检查点、错误和变更文件记录�
 
 ## 快速开始
 
-需要的工具: `git`, Node.js 18+ 和 `npm`, 以及可访问 GitHub Releases 的网络。
+需要的工具: `git`, Node.js 18+ 和 `npm`, 以及可访问 GitHub Releases 中预构建 `topa` 归档文件的网络。
 
 macOS / Linux:
 

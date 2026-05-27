@@ -6,7 +6,7 @@
 
 - `git`
 - Node.js 18+ と `npm`
-- ビルド済みの `topa` バイナリを取得するための GitHub Releases へのアクセス
+- ビルド済みの `topa` アーカイブを取得するための GitHub Releases へのアクセス
 - ローカル MCP サーバーを起動できる AI アプリまたはエージェント
 
 ## クイックスタート

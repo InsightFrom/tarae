@@ -8,7 +8,7 @@ Use Tarae when you want the next AI session to understand what happened before b
 
 ## Quick Start
 
-Prerequisites: `git`, Node.js 18+ with `npm`, and a network connection. The installer downloads the prebuilt `topa` binary from the latest GitHub release.
+Prerequisites: `git`, Node.js 18+ with `npm`, and a network connection. The installer downloads the prebuilt `topa` archive from the latest GitHub release.
 
 macOS / Linux:
 

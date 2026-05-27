@@ -38,7 +38,7 @@ if (-not $env:TARAE_TOPA_DOWNLOAD_BASE_URL -and $Ref -like "v*") {
   $env:TARAE_TOPA_DOWNLOAD_BASE_URL = "https://github.com/InsightFrom/tarae/releases/download/$Ref"
 }
 
-Write-Host "Downloading topa release binary"
+Write-Host "Downloading topa release archive"
 $env:TARAE_DEV = "false"
 $env:TARAE_FORCE_TOPA_DOWNLOAD = "true"
 node (Join-Path $InstallDir "packages\cli\bin\index.js") init

@@ -8,7 +8,7 @@ Tarae는 AI 코딩 세션의 의도, 체크포인트, 오류, 변경 파일 정�
 
 ## 빠른 시작
 
-필요한 도구: `git`, Node.js 18+와 `npm`, GitHub 릴리스에 접근할 수 있는 네트워크.
+필요한 도구: `git`, Node.js 18+와 `npm`, GitHub 릴리스의 사전 빌드 `topa` 아카이브에 접근할 수 있는 네트워크.
 
 macOS / Linux:
 

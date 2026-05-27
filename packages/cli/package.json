@@ -1,6 +1,6 @@
 {
   "name": "tarae",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Tarae CLI for local AI Agent MCP history",
   "main": "bin/index.js",
   "type": "module",

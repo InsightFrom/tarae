@@ -35,6 +35,8 @@ Windows PowerShell:
 ```
 
 Restart the target AI app after linking so it reloads MCP settings.
+The CLI prints an `MCP files touched` summary showing which config file was read, backed up, or written.
+By default, the MCP config is project-root agnostic. Tarae resolves the project at tool-call time from MCP `roots/list`, or from the `project_root` argument passed to lifecycle tools. Use `--fixed-project-root` only for clients that cannot provide either.
 
 Supported agents:
 
@@ -43,6 +45,13 @@ codex
 cursor
 claude
 gemini
+```
+
+For an unsupported MCP-capable agent, provide its config path:
+
+```bash
+~/.tarae/bin/tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+~/.tarae/bin/tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 ```
 
 ## What It Does
@@ -58,8 +67,8 @@ gemini
 Add this lifecycle to your agent instructions:
 
 ```text
-1. fetch_past_context()
-2. start_session(objective="...")
+1. fetch_past_context(project_root="...") when roots/list is unavailable
+2. start_session(objective="...", project_root="...") when roots/list is unavailable
 3. checkpoint(summary="...") after meaningful progress
 4. report_issue(error_message="...") when a build, test, or runtime failure happens
 5. end_session(summary="...") before the task ends
@@ -119,12 +128,19 @@ tarae install --agent codex --project-root "$PWD"
 ```bash
 tarae init
 tarae link codex --project-root "$PWD"
+tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+tarae link codex --project-root "$PWD" --fixed-project-root
 tarae verify --agent codex --project-root "$PWD"
 tarae doctor --project-root "$PWD"
 tarae status --project-root "$PWD"
 tarae unlink codex
+tarae unlink my-agent --config-path ~/.my-agent/mcp.json
 tarae uninstall --all
 ```
+
+## Stopping Topa
+
+`topa` is launched by the MCP client as a stdio child process. It exits when the client closes the MCP connection, usually when you close or restart the AI app. To stop recording a session, call `end_session`. To prevent future launches, run `tarae unlink <agent>` and restart the AI app.
 
 ## Verify
 

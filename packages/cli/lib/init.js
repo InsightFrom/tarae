@@ -37,6 +37,16 @@ function topaBinaryName() {
   return process.platform === 'win32' ? 'topa.exe' : 'topa';
 }
 
+function removeExistingPath(targetPath) {
+  try {
+    fs.lstatSync(targetPath);
+  } catch {
+    return;
+  }
+
+  fs.removeSync(targetPath);
+}
+
 async function downloadTopaBinary(destinationPath) {
   const assetName = topaAssetName();
   const downloadUrl = process.env.TARAE_TOPA_DOWNLOAD_URL
@@ -52,6 +62,7 @@ async function downloadTopaBinary(destinationPath) {
   const binary = assetName.endsWith('.tar.gz') || downloadUrl.endsWith('.tar.gz')
     ? extractBinaryFromTarGz(bytes, topaBinaryName())
     : bytes;
+  removeExistingPath(destinationPath);
   fs.writeFileSync(destinationPath, binary);
   fs.chmodSync(destinationPath, 0o755);
   clearMacQuarantine(destinationPath);
@@ -167,10 +178,7 @@ export async function initAction() {
       throw new Error(`topa release binary not found at ${topaSourceDev}.\nPlease run "cargo build --release" in packages/watcher first!`);
     }
 
-    if (fs.existsSync(taraeBinPath)) {
-      // Remove whatever is there (symlink, file, directory)
-      fs.removeSync(taraeBinPath);
-    }
+    removeExistingPath(taraeBinPath);
 
     // Create symlink
     fs.symlinkSync(topaSourceDev, taraeBinPath);
@@ -179,9 +187,7 @@ export async function initAction() {
     console.log(chalk.blue('Production mode detected. Preparing pre-built topa binary...'));
 
     if (!forceDownload && fs.existsSync(topaSourceDev)) {
-      if (fs.existsSync(taraeBinPath)) {
-        fs.removeSync(taraeBinPath);
-      }
+      removeExistingPath(taraeBinPath);
       fs.copySync(topaSourceDev, taraeBinPath);
       fs.chmodSync(taraeBinPath, 0o755);
       clearMacQuarantine(taraeBinPath);

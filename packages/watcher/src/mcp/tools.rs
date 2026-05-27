@@ -1,9 +1,11 @@
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::{model::*, tool, tool_handler, tool_router, ServerHandler};
+use rmcp::{model::*, tool, tool_handler, tool_router, Peer, RoleServer, ServerHandler};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -11,12 +13,14 @@ use crate::config::AppConfig;
 use crate::history::{HistoryStore, SearchHit, SessionIndexEntry};
 use crate::mcp::schema::*;
 use crate::security::pii_filter::PiiFilter;
+use crate::watcher::root;
 
 /// State for each active session
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct SessionState {
     pub session_id: Uuid,
+    pub project_root: String,
     pub objective: Option<String>,
     pub actor: Actor,
     pub file_changes: Vec<FileChange>,
@@ -29,7 +33,8 @@ pub struct SessionState {
 pub struct TaraeServer {
     pub(crate) config: Arc<AppConfig>,
     sessions: Arc<RwLock<HashMap<Uuid, SessionState>>>,
-    active_session_id: Arc<RwLock<Option<Uuid>>>,
+    active_sessions: Arc<RwLock<HashMap<String, Uuid>>>,
+    watched_roots: Arc<RwLock<HashSet<String>>>,
 }
 
 impl TaraeServer {
@@ -37,37 +42,106 @@ impl TaraeServer {
         Self {
             config,
             sessions: Arc::new(RwLock::new(HashMap::new())),
-            active_session_id: Arc::new(RwLock::new(None)),
+            active_sessions: Arc::new(RwLock::new(HashMap::new())),
+            watched_roots: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
-    pub async fn is_active_session_running(&self) -> bool {
-        // 1st: in-memory check (same process that called start_session)
-        if self.active_session_id.read().await.is_some() {
+    pub async fn start_configured_watcher(&self) {
+        match self.resolve_project_root_for_call(None, None, false).await {
+            Ok(project_root) => self.start_watcher_if_needed(&project_root).await,
+            Err(err) => tracing::warn!(
+                "Background file watcher disabled: {err}. Provide project_root to start_session or run topa from a git/project directory."
+            ),
+        }
+    }
+
+    pub async fn start_watcher_if_needed(&self, project_root: &Path) {
+        let key = root_key(project_root);
+        {
+            let mut watched = self.watched_roots.write().await;
+            if !watched.insert(key) {
+                return;
+            }
+        }
+
+        crate::watcher::start_background_watcher_for_root(self.clone(), project_root.to_path_buf());
+    }
+
+    pub async fn is_active_session_running_for_root(&self, project_root: &Path) -> bool {
+        let key = root_key(project_root);
+        if self.active_sessions.read().await.contains_key(&key) {
             return true;
         }
-        // 2nd: file check (cross-process — e.g., daemon reading MCP stdio's session)
-        match self.history_store() {
+        match self.history_store_for_root(project_root) {
             Ok(store) => store.get_active_session().unwrap_or(None).is_some(),
             Err(_) => false,
         }
     }
 
-    fn history_store(&self) -> Result<HistoryStore, String> {
-        let root = self
+    fn history_store_for_root(&self, project_root: &Path) -> Result<HistoryStore, String> {
+        HistoryStore::open(project_root).map_err(|e| e.to_string())
+    }
+
+    async fn resolve_project_root_for_call(
+        &self,
+        explicit_root: Option<&str>,
+        peer: Option<&Peer<RoleServer>>,
+        allow_active_fallback: bool,
+    ) -> Result<PathBuf, String> {
+        if let Some(project_root) = explicit_root.map(str::trim).filter(|root| !root.is_empty()) {
+            return resolve_safe_project_root(Some(project_root));
+        }
+
+        if allow_active_fallback {
+            if let Some(project_root) = self.single_active_project_root().await {
+                return Ok(project_root);
+            }
+        }
+
+        if let Some(project_root) = self
             .config
             .project_root
             .as_deref()
-            .ok_or_else(|| "No project root configured for local Tarae history".to_string())?;
-        HistoryStore::open(root).map_err(|e| e.to_string())
+            .map(str::trim)
+            .filter(|root| !root.is_empty())
+        {
+            return resolve_safe_project_root(Some(project_root));
+        }
+
+        if let Some(peer) = peer {
+            if let Some(project_root) = project_root_from_mcp_roots(peer).await {
+                return Ok(project_root);
+            }
+        }
+
+        root::resolve_project_root(None)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                "No project root could be resolved. Pass project_root to start_session or use an MCP client that supports roots/list.".to_string()
+            })
     }
 
-    pub(crate) async fn create_event(
+    async fn single_active_project_root(&self) -> Option<PathBuf> {
+        let active = self.active_sessions.read().await;
+        if active.len() != 1 {
+            return None;
+        }
+        active.keys().next().map(PathBuf::from)
+    }
+
+    pub(crate) async fn create_event_for_root(
         &self,
+        project_root: &Path,
         event_type: EventType,
         payload: EventPayload,
     ) -> TopaEvent {
-        let active_id = self.active_session_id.read().await;
+        let active_id = self
+            .active_sessions
+            .read()
+            .await
+            .get(&root_key(project_root))
+            .copied();
 
         let mut event = TopaEvent::new(
             event_type,
@@ -77,13 +151,17 @@ impl TaraeServer {
             },
             payload,
         );
-        event.session_id = *active_id;
+        event.session_id = active_id;
         event
     }
 
-    pub(crate) async fn record_event(&self, event: &TopaEvent) -> String {
+    pub(crate) async fn record_event_for_root(
+        &self,
+        project_root: &Path,
+        event: &TopaEvent,
+    ) -> String {
         match self
-            .history_store()
+            .history_store_for_root(project_root)
             .and_then(|store| store.append_event(event).map_err(|e| e.to_string()))
         {
             Ok(message) => message,
@@ -101,6 +179,9 @@ impl TaraeServer {
 pub struct StartSessionParams {
     /// What is the goal of this coding session?
     pub objective: String,
+    /// Project root directory for this session. If omitted, Tarae asks the MCP client for roots/list when supported.
+    #[serde(default)]
+    pub project_root: Option<String>,
     /// Name of the AI agent (e.g., "cursor", "copilot", "claude")
     #[serde(default)]
     pub agent_name: Option<String>,
@@ -113,6 +194,9 @@ pub struct StartSessionParams {
 pub struct CheckpointParams {
     /// Brief summary of what was just done. Write in the user's language.
     pub summary: String,
+    /// Project root directory for this checkpoint. Usually omitted after start_session.
+    #[serde(default)]
+    pub project_root: Option<String>,
     /// List of files that were changed
     #[serde(default)]
     pub files_changed: Vec<FileChangeInput>,
@@ -144,6 +228,9 @@ fn default_action() -> String {
 pub struct ReportIssueParams {
     /// Error message or issue description
     pub error_message: String,
+    /// Project root directory for this issue. Usually omitted after start_session.
+    #[serde(default)]
+    pub project_root: Option<String>,
     /// Relevant log output (last few lines)
     #[serde(default)]
     pub log_tail: Vec<String>,
@@ -157,10 +244,16 @@ pub struct EndSessionParams {
     /// Final summary of the session. Write in the user's language.
     #[serde(default)]
     pub summary: Option<String>,
+    /// Project root directory for the session to end. Usually omitted unless multiple project sessions are active.
+    #[serde(default)]
+    pub project_root: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct FetchContextParams {
+    /// Project root directory containing .tarae/topa. If omitted, Tarae asks the MCP client for roots/list when supported.
+    #[serde(default)]
+    pub project_root: Option<String>,
     /// Optional: specific session ID to fetch context for
     #[serde(default)]
     pub session_id: Option<String>,
@@ -168,6 +261,9 @@ pub struct FetchContextParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListSessionsParams {
+    /// Project root directory containing .tarae/topa.
+    #[serde(default)]
+    pub project_root: Option<String>,
     /// Maximum number of sessions to return
     #[serde(default = "default_session_limit")]
     pub limit: usize,
@@ -178,6 +274,9 @@ pub struct ListSessionsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReadSessionParams {
+    /// Project root directory containing .tarae/topa.
+    #[serde(default)]
+    pub project_root: Option<String>,
     /// Session ID, or a local synthetic ID such as human-YYYY-MM-DD
     pub session_id: String,
     /// Output format: markdown or jsonl
@@ -187,6 +286,9 @@ pub struct ReadSessionParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchHistoryParams {
+    /// Project root directory containing .tarae/topa.
+    #[serde(default)]
+    pub project_root: Option<String>,
     /// Query text matched against objective, summaries, errors, logs, and file paths
     #[serde(default)]
     pub query: Option<String>,
@@ -213,6 +315,76 @@ fn default_session_format() -> String {
     "markdown".to_string()
 }
 
+fn root_key(project_root: &Path) -> String {
+    project_root.display().to_string()
+}
+
+fn resolve_safe_project_root(config_root: Option<&str>) -> Result<PathBuf, String> {
+    root::resolve_project_root(config_root)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No safe project root detected".to_string())
+}
+
+async fn project_root_from_mcp_roots(peer: &Peer<RoleServer>) -> Option<PathBuf> {
+    peer.peer_info()?.capabilities.roots.as_ref()?;
+
+    let roots = tokio::time::timeout(Duration::from_secs(2), peer.list_roots())
+        .await
+        .ok()?
+        .ok()?
+        .roots;
+
+    for mcp_root in roots {
+        let Some(path) = path_from_file_uri(&mcp_root.uri) else {
+            continue;
+        };
+        if let Ok(project_root) = resolve_safe_project_root(Some(&path)) {
+            return Some(project_root);
+        }
+    }
+
+    None
+}
+
+fn path_from_file_uri(uri: &str) -> Option<String> {
+    let path = uri.strip_prefix("file://")?;
+    let path = if cfg!(windows) && path.starts_with('/') && path.get(2..3) == Some(":") {
+        &path[1..]
+    } else {
+        path
+    };
+    Some(percent_decode(path))
+}
+
+fn percent_decode(input: &str) -> String {
+    let mut out = Vec::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let high = hex_value(bytes[index + 1]);
+            let low = hex_value(bytes[index + 2]);
+            if let (Some(high), Some(low)) = (high, low) {
+                out.push(high * 16 + low);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 // -- Tool implementations --
 
 #[tool_router]
@@ -220,8 +392,14 @@ impl TaraeServer {
     #[tool(description = "Start a new AI coding session. Call this when beginning work on a task.")]
     async fn start_session(
         &self,
+        peer: Peer<RoleServer>,
         Parameters(params): Parameters<StartSessionParams>,
     ) -> Result<String, String> {
+        let project_root = self
+            .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), false)
+            .await?;
+        self.start_watcher_if_needed(&project_root).await;
+        let project_key = root_key(&project_root);
         let session_id = Uuid::new_v4();
 
         let actor = Actor {
@@ -231,6 +409,7 @@ impl TaraeServer {
 
         let state = SessionState {
             session_id,
+            project_root: project_key.clone(),
             objective: Some(params.objective.clone()),
             actor: actor.clone(),
             file_changes: Vec::new(),
@@ -243,8 +422,8 @@ impl TaraeServer {
             sessions.insert(session_id, state);
         }
         {
-            let mut active = self.active_session_id.write().await;
-            *active = Some(session_id);
+            let mut active = self.active_sessions.write().await;
+            active.insert(project_key, session_id);
         }
 
         let payload = EventPayload {
@@ -253,14 +432,16 @@ impl TaraeServer {
             ..Default::default()
         };
 
-        let mut event = self.create_event(EventType::SessionStart, payload).await;
+        let mut event = self
+            .create_event_for_root(&project_root, EventType::SessionStart, payload)
+            .await;
         event.session_id = Some(session_id);
         event.actor = actor;
 
-        let msg = self.record_event(&event).await;
+        let msg = self.record_event_for_root(&project_root, &event).await;
 
         // Persist session state for cross-process visibility
-        if let Ok(store) = self.history_store() {
+        if let Ok(store) = self.history_store_for_root(&project_root) {
             if let Err(e) = store.set_active_session(
                 &session_id.to_string(),
                 Some(&params.objective),
@@ -278,8 +459,12 @@ impl TaraeServer {
     )]
     async fn checkpoint(
         &self,
+        peer: Peer<RoleServer>,
         Parameters(params): Parameters<CheckpointParams>,
     ) -> Result<String, String> {
+        let project_root = self
+            .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), true)
+            .await?;
         let file_changes: Vec<FileChange> = params
             .files_changed
             .into_iter()
@@ -305,7 +490,13 @@ impl TaraeServer {
         let filtered_summary = PiiFilter::filter_text(&params.summary);
 
         // Update session state
-        if let Some(session_id) = *self.active_session_id.read().await {
+        if let Some(session_id) = self
+            .active_sessions
+            .read()
+            .await
+            .get(&root_key(&project_root))
+            .copied()
+        {
             let mut sessions = self.sessions.write().await;
             if let Some(state) = sessions.get_mut(&session_id) {
                 state.file_changes.extend(file_changes.clone());
@@ -327,8 +518,10 @@ impl TaraeServer {
             ..Default::default()
         };
 
-        let event = self.create_event(EventType::Checkpoint, payload).await;
-        let msg = self.record_event(&event).await;
+        let event = self
+            .create_event_for_root(&project_root, EventType::Checkpoint, payload)
+            .await;
+        let msg = self.record_event_for_root(&project_root, &event).await;
         Ok(format!(
             "💾 Checkpoint saved: {} files changed\n{}\n{}",
             file_count, filtered_summary, msg
@@ -338,8 +531,12 @@ impl TaraeServer {
     #[tool(description = "Report an error or issue encountered during development.")]
     async fn report_issue(
         &self,
+        peer: Peer<RoleServer>,
         Parameters(params): Parameters<ReportIssueParams>,
     ) -> Result<String, String> {
+        let project_root = self
+            .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), true)
+            .await?;
         let filtered_message = PiiFilter::filter_text(&params.error_message);
 
         let payload = EventPayload {
@@ -356,22 +553,29 @@ impl TaraeServer {
             ..Default::default()
         };
 
-        let event = self.create_event(EventType::IssueReport, payload).await;
-        let msg = self.record_event(&event).await;
+        let event = self
+            .create_event_for_root(&project_root, EventType::IssueReport, payload)
+            .await;
+        let msg = self.record_event_for_root(&project_root, &event).await;
         Ok(format!("🐛 Issue reported: {}\n{}", filtered_message, msg))
     }
 
     #[tool(description = "End the current coding session.")]
     async fn end_session(
         &self,
+        peer: Peer<RoleServer>,
         Parameters(params): Parameters<EndSessionParams>,
     ) -> Result<String, String> {
+        let project_root = self
+            .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), true)
+            .await?;
+        let project_key = root_key(&project_root);
         let session_id = {
-            let active = self.active_session_id.read().await;
-            match *active {
-                Some(id) => id,
-                None => return Err("No active session to end".to_string()),
-            }
+            let active = self.active_sessions.read().await;
+            active
+                .get(&project_key)
+                .copied()
+                .ok_or_else(|| "No active session to end for this project root".to_string())?
         };
 
         let session_stats = {
@@ -386,17 +590,19 @@ impl TaraeServer {
             ..Default::default()
         };
 
-        let event = self.create_event(EventType::SessionEnd, payload).await;
-        let msg = self.record_event(&event).await;
+        let event = self
+            .create_event_for_root(&project_root, EventType::SessionEnd, payload)
+            .await;
+        let msg = self.record_event_for_root(&project_root, &event).await;
 
         // Clear active session
         {
-            let mut active = self.active_session_id.write().await;
-            *active = None;
+            let mut active = self.active_sessions.write().await;
+            active.remove(&project_key);
         }
 
         // Clear from local history state for cross-process visibility
-        if let Ok(store) = self.history_store() {
+        if let Ok(store) = self.history_store_for_root(&project_root) {
             if let Err(e) = store.clear_active_session() {
                 tracing::warn!("Failed to clear active session: {}", e);
             }
@@ -414,9 +620,13 @@ impl TaraeServer {
     )]
     async fn fetch_past_context(
         &self,
+        peer: Peer<RoleServer>,
         Parameters(params): Parameters<FetchContextParams>,
     ) -> Result<String, String> {
-        let store = self.history_store()?;
+        let project_root = self
+            .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), true)
+            .await?;
+        let store = self.history_store_for_root(&project_root)?;
         if let Some(session_id) = params.session_id {
             return store
                 .read_session_markdown(&session_id)
@@ -435,9 +645,13 @@ impl TaraeServer {
     #[tool(description = "List recent local Tarae sessions from .tarae/topa.")]
     async fn list_sessions(
         &self,
+        peer: Peer<RoleServer>,
         Parameters(params): Parameters<ListSessionsParams>,
     ) -> Result<String, String> {
-        let store = self.history_store()?;
+        let project_root = self
+            .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), true)
+            .await?;
+        let store = self.history_store_for_root(&project_root)?;
         let sessions = store
             .list_sessions(params.limit, params.status.as_deref())
             .map_err(|e| e.to_string())?;
@@ -447,9 +661,13 @@ impl TaraeServer {
     #[tool(description = "Read a local Tarae session as markdown or jsonl.")]
     async fn read_session(
         &self,
+        peer: Peer<RoleServer>,
         Parameters(params): Parameters<ReadSessionParams>,
     ) -> Result<String, String> {
-        let store = self.history_store()?;
+        let project_root = self
+            .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), true)
+            .await?;
+        let store = self.history_store_for_root(&project_root)?;
         match params.format.as_str() {
             "jsonl" => store
                 .read_session_jsonl(&params.session_id)
@@ -463,9 +681,13 @@ impl TaraeServer {
     #[tool(description = "Search local Tarae history by query, file path, and event type.")]
     async fn search_history(
         &self,
+        peer: Peer<RoleServer>,
         Parameters(params): Parameters<SearchHistoryParams>,
     ) -> Result<String, String> {
-        let store = self.history_store()?;
+        let project_root = self
+            .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), true)
+            .await?;
+        let store = self.history_store_for_root(&project_root)?;
         let hits = store
             .search_history(
                 params.query.as_deref(),

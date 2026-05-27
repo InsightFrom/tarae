@@ -2,6 +2,15 @@ import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
 import chalk from 'chalk';
+import readline from 'readline/promises';
+import { stdin as input, stdout as output } from 'process';
+import {
+  SUPPORTED_AGENTS,
+  defaultAgentConfigPath,
+  inferAgentConfigFormat,
+  resolveUserPath,
+  supportedAgentsText,
+} from './config.js';
 
 function tomlString(value) {
   return JSON.stringify(String(value ?? ''));
@@ -46,13 +55,40 @@ function removeTomlTables(content, tableNames) {
   return kept.join('\n').replace(/\s+$/, '');
 }
 
-function backupFile(configPath) {
+function createFileReport() {
+  const entries = [];
+  const seen = new Set();
+
+  return {
+    record(action, filePath) {
+      const resolved = path.resolve(filePath);
+      const key = `${action}\0${resolved}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      entries.push({ action, filePath: resolved });
+    },
+    print() {
+      if (entries.length === 0) {
+        return;
+      }
+      console.log(chalk.cyan('\nMCP files touched:'));
+      for (const entry of entries) {
+        console.log(chalk.gray(`  - ${entry.action}: ${entry.filePath}`));
+      }
+    },
+  };
+}
+
+function backupFile(configPath, report) {
   if (!fs.existsSync(configPath)) {
     return;
   }
 
   const backupPath = `${configPath}.bak`;
   fs.copySync(configPath, backupPath);
+  report?.record('wrote backup', backupPath);
 
   if (!fs.existsSync(backupPath) || fs.statSync(backupPath).size !== fs.statSync(configPath).size) {
     throw new Error(`Backup validation failed for ${configPath}`);
@@ -65,15 +101,32 @@ function topaBinaryName() {
   return process.platform === 'win32' ? 'topa.exe' : 'topa';
 }
 
-function linkCodexConfig({ homeDir, topaPath, projectRoot }) {
-  const configPath = path.join(homeDir, '.codex', 'config.toml');
-  console.log(chalk.cyan('Linking Tarae MCP server to codex...'));
+function mcpServerArgs({ projectRoot, fixedProjectRoot }) {
+  return fixedProjectRoot ? ['serve', '--project-root', projectRoot] : ['serve'];
+}
+
+function mcpServerEnv({ projectRoot, fixedProjectRoot }) {
+  return fixedProjectRoot ? { TARAE_PROJECT_ROOT: projectRoot } : null;
+}
+
+function linkCodexConfig({ agent, configPath, topaPath, projectRoot, fixedProjectRoot, report }) {
+  console.log(chalk.cyan(`Linking Tarae MCP server to ${agent}...`));
   console.log(chalk.gray(`Config path: ${configPath}`));
+  if (!fixedProjectRoot) {
+    console.log(chalk.gray('Project root mode: resolved at MCP call time'));
+  }
 
   fs.ensureDirSync(path.dirname(configPath));
-  backupFile(configPath);
 
-  const existing = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+  let existing = '';
+  if (fs.existsSync(configPath)) {
+    report.record('read config', configPath);
+    backupFile(configPath, report);
+    existing = fs.readFileSync(configPath, 'utf8');
+  } else {
+    console.log(chalk.yellow(`No existing config found at ${configPath}. Creating new file.`));
+  }
+
   const preserved = removeTomlTables(existing, [
     'mcp_servers.tarae',
     'mcp_servers.tarae.env',
@@ -82,103 +135,132 @@ function linkCodexConfig({ homeDir, topaPath, projectRoot }) {
   const taraeConfig = [
     '[mcp_servers.tarae]',
     `command = ${tomlString(topaPath)}`,
-    `args = ${tomlArray(['serve', '--project-root', projectRoot])}`,
-    '',
-    '[mcp_servers.tarae.env]',
-    `TARAE_PROJECT_ROOT = ${tomlString(projectRoot)}`,
-  ].join('\n');
+    `args = ${tomlArray(mcpServerArgs({ projectRoot, fixedProjectRoot }))}`,
+  ];
 
-  const nextConfig = `${preserved ? `${preserved}\n\n` : ''}${taraeConfig}\n`;
+  if (fixedProjectRoot) {
+    taraeConfig.push('', '[mcp_servers.tarae.env]', `TARAE_PROJECT_ROOT = ${tomlString(projectRoot)}`);
+  }
+
+  const nextConfig = `${preserved ? `${preserved}\n\n` : ''}${taraeConfig.join('\n')}\n`;
   fs.writeFileSync(configPath, nextConfig, 'utf8');
-  console.log(chalk.green('Successfully linked Tarae MCP server to codex!'));
+  report.record('wrote config', configPath);
+  console.log(chalk.green(`Successfully linked Tarae MCP server to ${agent}!`));
 }
 
-export async function linkAction(agent, options) {
+function linkJsonConfig({ agent, configPath, topaPath, projectRoot, fixedProjectRoot, report }) {
+  console.log(chalk.cyan(`Linking Tarae MCP server to ${agent}...`));
+  console.log(chalk.gray(`Config path: ${configPath}`));
+  if (!fixedProjectRoot) {
+    console.log(chalk.gray('Project root mode: resolved at MCP call time'));
+  }
+
+  fs.ensureDirSync(path.dirname(configPath));
+
+  let config = { mcpServers: {} };
+  if (fs.existsSync(configPath)) {
+    report.record('read config', configPath);
+    backupFile(configPath, report);
+    try {
+      config = fs.readJsonSync(configPath);
+    } catch (err) {
+      console.log(chalk.yellow(`Warning: failed to parse existing config JSON. Overwriting. Error: ${err.message}`));
+    }
+  } else {
+    console.log(chalk.yellow(`No existing config found at ${configPath}. Creating new file.`));
+  }
+
+  if (!config.mcpServers) {
+    config.mcpServers = {};
+  }
+
+  config.mcpServers.tarae = {
+    command: topaPath,
+    args: mcpServerArgs({ projectRoot, fixedProjectRoot }),
+    disabled: false
+  };
+  const env = mcpServerEnv({ projectRoot, fixedProjectRoot });
+  if (env) {
+    config.mcpServers.tarae.env = env;
+  }
+
+  fs.writeJsonSync(configPath, config, { spaces: 2 });
+  report.record('wrote config', configPath);
+  console.log(chalk.green(`Successfully linked Tarae MCP server to ${agent}!`));
+}
+
+async function promptForConfigPath(agent) {
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      `Unsupported agent: ${agent}. Supported agents are: ${supportedAgentsText()}. ` +
+      'Pass --config-path <path> to link a custom MCP config.'
+    );
+  }
+
+  console.log(chalk.yellow(`Unsupported agent: ${agent}.`));
+  console.log(chalk.gray('Enter the MCP config file path to link it as a custom JSON/TOML config.'));
+
+  const rl = readline.createInterface({ input, output });
+  try {
+    const answer = await rl.question('MCP config path: ');
+    const trimmed = answer.trim();
+    if (!trimmed) {
+      throw new Error('Config path is required for unsupported agents.');
+    }
+    return resolveUserPath(trimmed);
+  } finally {
+    rl.close();
+  }
+}
+
+export async function linkAction(agent, options = {}) {
   const homeDir = os.homedir();
   const topaPath = path.join(homeDir, '.tarae', 'bin', topaBinaryName());
   const projectRoot = resolveProjectRoot(options);
+  const report = createFileReport();
   console.log(chalk.gray(`Project root: ${projectRoot}`));
 
   if (!fs.existsSync(topaPath)) {
     throw new Error(`topa binary not found at ${topaPath}. Please run "tarae init" first!`);
   }
 
-  const agentsToLink = [];
-  if (agent) {
-    const lowerAgent = agent.toLowerCase();
-    if (lowerAgent === 'cursor') {
-      agentsToLink.push('cursor');
-    } else if (lowerAgent === 'claude') {
-      agentsToLink.push('claude');
-    } else if (lowerAgent === 'gemini') {
-      agentsToLink.push('gemini');
-    } else if (lowerAgent === 'codex') {
-      agentsToLink.push('codex');
-    } else {
-      throw new Error(`Unsupported agent: ${agent}. Supported agents are: cursor, claude, gemini, codex`);
-    }
+  const targetAgent = agent ? agent.toLowerCase() : 'cursor';
+  const supported = SUPPORTED_AGENTS.includes(targetAgent);
+  let configPath = resolveUserPath(options.configPath) || defaultAgentConfigPath(targetAgent, homeDir);
+
+  if (!supported && !configPath) {
+    configPath = await promptForConfigPath(agent);
+  }
+
+  if (!supported) {
+    console.log(chalk.yellow(`Unsupported agent: ${agent}. Linking as a custom MCP config.`));
+  }
+
+  const configFormat = inferAgentConfigFormat(targetAgent, configPath, options.configFormat);
+  if (configFormat === 'codex-toml') {
+    linkCodexConfig({
+      agent: targetAgent,
+      configPath,
+      topaPath,
+      projectRoot,
+      fixedProjectRoot: options.fixedProjectRoot === true,
+      report,
+    });
   } else {
-    // Default to linking cursor if not specified, since it is the primary E2E target
-    agentsToLink.push('cursor');
+    linkJsonConfig({
+      agent: targetAgent,
+      configPath,
+      topaPath,
+      projectRoot,
+      fixedProjectRoot: options.fixedProjectRoot === true,
+      report,
+    });
   }
 
-  for (const targetAgent of agentsToLink) {
-    if (targetAgent === 'codex') {
-      linkCodexConfig({ homeDir, topaPath, projectRoot });
-      continue;
-    }
-
-    let configPath = '';
-    if (targetAgent === 'cursor') {
-      configPath = path.join(
-        homeDir,
-        'Library/Application Support/Cursor/User/globalStorage/moose.connection-mcp/mcp.json'
-      );
-    } else if (targetAgent === 'claude') {
-      configPath = path.join(homeDir, '.claude.json');
-    } else if (targetAgent === 'gemini') {
-      configPath = path.join(homeDir, '.gemini/config/mcp_config.json');
-    }
-
-    console.log(chalk.cyan(`Linking Tarae MCP server to ${targetAgent}...`));
-    console.log(chalk.gray(`Config path: ${configPath}`));
-
-    // Ensure the parent directory exists
-    const dir = path.dirname(configPath);
-    fs.ensureDirSync(dir);
-
-    // 1. Backup existing config
-    if (fs.existsSync(configPath)) {
-      backupFile(configPath);
-    } else {
-      console.log(chalk.yellow(`No existing config found at ${configPath}. Creating new file.`));
-    }
-
-    // 2. Read and merge configuration
-    let config = { mcpServers: {} };
-    if (fs.existsSync(configPath)) {
-      try {
-        config = fs.readJsonSync(configPath);
-      } catch (err) {
-        console.log(chalk.yellow(`Warning: failed to parse existing config JSON. Overwriting. Error: ${err.message}`));
-      }
-    }
-
-    if (!config.mcpServers) {
-      config.mcpServers = {};
-    }
-
-    config.mcpServers.tarae = {
-      command: topaPath,
-      args: ['serve', '--project-root', projectRoot],
-      env: {
-        TARAE_PROJECT_ROOT: projectRoot
-      },
-      disabled: false
-    };
-
-    // 3. Write merged config
-    fs.writeJsonSync(configPath, config, { spaces: 2 });
-    console.log(chalk.green(`Successfully linked Tarae MCP server to ${targetAgent}!`));
-  }
+  report.print();
+  return {
+    agent: targetAgent,
+    configPath,
+    configFormat,
+  };
 }

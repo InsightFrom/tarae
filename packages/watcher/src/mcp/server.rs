@@ -29,8 +29,10 @@ pub async fn run_stdio_server(override_project_root: Option<String>) -> Result<(
 
     let service = server.clone().serve((stdin(), stdout())).await?;
 
-    // Spawn background file system watcher to track manual and AI edits silently
-    crate::watcher::start_background_watcher(server.clone());
+    // Spawn a watcher only when a safe root is available at startup.
+    // Without a configured root, start_session can resolve one later from MCP roots/list
+    // or from its project_root parameter and start the watcher then.
+    server.start_configured_watcher().await;
 
     // Block until the transport is closed (client disconnects)
     service.waiting().await?;

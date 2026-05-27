@@ -58,6 +58,26 @@ claude
 gemini
 ```
 
+CLI는 `MCP files touched` 요약으로 어떤 설정 파일을 읽고, 백업하고, 썼는지 보여줍니다.
+기본 MCP 설정은 특정 프로젝트에 고정되지 않습니다. Tarae는 MCP `roots/list` 또는 lifecycle/history 도구의 `project_root` 인자로 프로젝트를 결정합니다. 둘 다 지원하지 않는 MCP 클라이언트에는 `--fixed-project-root`를 사용할 수 있습니다.
+
+지원 목록에 없는 MCP 호환 에이전트는 설정 파일 경로를 직접 지정할 수 있습니다:
+
+```bash
+tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+```
+
+## Topa 종료
+
+`topa`는 데몬이 아니라 MCP 클라이언트가 실행하는 stdio 자식 프로세스입니다. AI 앱을 닫거나 재시작하면 MCP 연결이 닫히면서 종료됩니다.
+
+기록 세션은 `end_session`으로 끝냅니다. 이후 실행을 막으려면 Tarae를 unlink하고 AI 앱을 재시작합니다:
+
+```bash
+tarae unlink codex
+```
+
 ## 검증
 
 ```bash

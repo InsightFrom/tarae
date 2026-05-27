@@ -84,6 +84,15 @@ gemini
 ```
 
 The command prepares `topa`, writes MCP settings for the selected agent, and runs local verification.
+It also prints an `MCP files touched` summary showing which config file was read, backed up, or written.
+By default, the MCP config is project-root agnostic. Tarae resolves the project at tool-call time from MCP `roots/list`, or from the `project_root` argument passed to lifecycle and history tools. Use `--fixed-project-root` only for MCP clients that cannot provide either.
+
+For an unsupported MCP-capable agent, pass its config path. Tarae writes a JSON MCP config by default, or a Codex-style TOML config when the path ends in `.toml`.
+
+```bash
+tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+```
 
 ## Verify
 
@@ -124,10 +133,7 @@ Codex example:
 ```toml
 [mcp_servers.tarae]
 command = "/Users/<user>/.tarae/bin/topa"
-args = ["serve", "--project-root", "/path/to/project"]
-
-[mcp_servers.tarae.env]
-TARAE_PROJECT_ROOT = "/path/to/project"
+args = ["serve"]
 ```
 
 JSON-based clients use the same command and args shape:
@@ -137,14 +143,27 @@ JSON-based clients use the same command and args shape:
   "mcpServers": {
     "tarae": {
       "command": "/Users/<user>/.tarae/bin/topa",
-      "args": ["serve", "--project-root", "/path/to/project"],
-      "env": {
-        "TARAE_PROJECT_ROOT": "/path/to/project"
-      },
+      "args": ["serve"],
       "disabled": false
     }
   }
 }
+```
+
+For clients that cannot expose MCP roots and cannot pass `project_root` to tool calls, opt into the older fixed-root shape:
+
+```bash
+tarae link codex --project-root "$PWD" --fixed-project-root
+```
+
+## Stop Topa
+
+`topa` is not a daemon. It is launched by the MCP client as a stdio child process and exits when the client closes the MCP connection, usually when you close or restart the AI app.
+
+To stop recording a session, call `end_session`. To prevent future launches, unlink Tarae and restart the AI app:
+
+```bash
+tarae unlink codex
 ```
 
 ## Uninstall

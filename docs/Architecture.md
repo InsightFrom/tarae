@@ -39,8 +39,8 @@ flowchart TB
 ## Runtime Flow
 
 1. The user links Tarae to an AI agent with `tarae install --agent <agent> --project-root <path>`.
-2. The CLI writes the target agent MCP configuration so it can launch `topa serve --project-root <path>`.
-3. The AI agent calls Tarae lifecycle tools while it works.
+2. The CLI writes the target agent MCP configuration so it can launch `topa serve`.
+3. The AI agent calls Tarae lifecycle tools while it works. Tarae resolves the project root from MCP `roots/list`, from a tool `project_root` argument, or from explicit fixed-root configuration.
 4. `topa` appends canonical JSONL events under `.tarae/topa/sessions/`.
 5. `topa` regenerates a Markdown projection for the same session and updates `latest.md`.
 6. Search tools scan `session_index.jsonl` and session JSONL files when an agent asks for prior context.

@@ -1,9 +1,11 @@
 import fs from 'fs-extra';
-import path from 'path';
-import os from 'os';
 import chalk from 'chalk';
-
-const SUPPORTED_AGENTS = ['cursor', 'claude', 'gemini', 'codex'];
+import {
+  SUPPORTED_AGENTS,
+  inferAgentConfigFormat,
+  resolveAgentConfigPath,
+  supportedAgentsText,
+} from './config.js';
 
 function backupFile(configPath) {
   if (!fs.existsSync(configPath)) {
@@ -33,25 +35,6 @@ function removeTomlTables(content, tableNames) {
   }
 
   return `${kept.join('\n').replace(/\s+$/, '')}\n`;
-}
-
-function getConfigPath(agent, homeDir) {
-  if (agent === 'cursor') {
-    return path.join(
-      homeDir,
-      'Library/Application Support/Cursor/User/globalStorage/moose.connection-mcp/mcp.json'
-    );
-  }
-  if (agent === 'claude') {
-    return path.join(homeDir, '.claude.json');
-  }
-  if (agent === 'gemini') {
-    return path.join(homeDir, '.gemini/config/mcp_config.json');
-  }
-  if (agent === 'codex') {
-    return path.join(homeDir, '.codex', 'config.toml');
-  }
-  throw new Error(`Unsupported agent: ${agent}`);
 }
 
 function unlinkJsonConfig(agent, configPath) {
@@ -95,15 +78,17 @@ function unlinkCodexConfig(configPath) {
 }
 
 export async function unlinkAction(agent, options = {}) {
-  const homeDir = os.homedir();
   let targets = [];
 
   if (options.all) {
     targets = SUPPORTED_AGENTS;
   } else if (agent) {
     const normalized = agent.toLowerCase();
-    if (!SUPPORTED_AGENTS.includes(normalized)) {
-      throw new Error(`Unsupported agent: ${agent}. Supported agents are: ${SUPPORTED_AGENTS.join(', ')}`);
+    if (!SUPPORTED_AGENTS.includes(normalized) && !options.configPath) {
+      throw new Error(
+        `Unsupported agent: ${agent}. Supported agents are: ${supportedAgentsText()}. ` +
+        'Pass --config-path <path> to unlink a custom MCP config.'
+      );
     }
     targets = [normalized];
   } else {
@@ -111,11 +96,12 @@ export async function unlinkAction(agent, options = {}) {
   }
 
   for (const target of targets) {
-    const configPath = getConfigPath(target, homeDir);
+    const configPath = resolveAgentConfigPath(target, options);
+    const configFormat = inferAgentConfigFormat(target, configPath, options.configFormat);
     console.log(chalk.cyan(`Unlinking Tarae MCP server from ${target}...`));
     console.log(chalk.gray(`Config path: ${configPath}`));
 
-    if (target === 'codex') {
+    if (configFormat === 'codex-toml') {
       unlinkCodexConfig(configPath);
     } else {
       unlinkJsonConfig(target, configPath);

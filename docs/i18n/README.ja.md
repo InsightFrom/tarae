@@ -35,6 +35,8 @@ Windows PowerShell:
 ```
 
 MCP 設定を読み直すため、接続後に対象の AI アプリを再起動してください。
+CLI は `MCP files touched` の要約で、どの設定ファイルを読み取り、バックアップし、書き込んだかを表示します。
+デフォルトの MCP 設定は特定のプロジェクトに固定されません。Tarae は MCP `roots/list` または lifecycle ツールの `project_root` 引数からプロジェクトを決定します。
 
 対応エージェント:
 
@@ -44,6 +46,17 @@ cursor
 claude
 gemini
 ```
+
+対応一覧にない MCP 対応エージェントでは、設定ファイルのパスを直接指定できます:
+
+```bash
+~/.tarae/bin/tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+~/.tarae/bin/tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+```
+
+## Topa の停止
+
+`topa` はデーモンではなく、MCP クライアントが起動する stdio 子プロセスです。AI アプリを閉じるか再起動すると MCP 接続が閉じ、`topa` も終了します。記録セッションは `end_session` で終了し、今後の起動を止めるには `tarae unlink <agent>` を実行してから AI アプリを再起動してください。
 
 ## 機能
 

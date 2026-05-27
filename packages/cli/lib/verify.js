@@ -5,8 +5,11 @@ import chalk from 'chalk';
 import { spawn } from 'child_process';
 import {
   SUPPORTED_AGENTS,
+  inferAgentConfigFormat,
   readGlobalConfig,
+  resolveAgentConfigPath,
   resolveProjectRoot,
+  supportedAgentsText,
 } from './config.js';
 
 function pass(label, detail = '') {
@@ -21,26 +24,6 @@ function fail(label, detail = '') {
   console.log(`${chalk.red('🔴')} ${label}${detail ? chalk.gray(` — ${detail}`) : ''}`);
 }
 
-function getAgentConfigPath(agent) {
-  const homeDir = os.homedir();
-  if (agent === 'cursor') {
-    return path.join(
-      homeDir,
-      'Library/Application Support/Cursor/User/globalStorage/moose.connection-mcp/mcp.json'
-    );
-  }
-  if (agent === 'claude') {
-    return path.join(homeDir, '.claude.json');
-  }
-  if (agent === 'gemini') {
-    return path.join(homeDir, '.gemini/config/mcp_config.json');
-  }
-  if (agent === 'codex') {
-    return path.join(homeDir, '.codex', 'config.toml');
-  }
-  throw new Error(`Unsupported agent: ${agent}`);
-}
-
 function topaBinaryName() {
   return process.platform === 'win32' ? 'topa.exe' : 'topa';
 }
@@ -50,7 +33,13 @@ function verifyJsonAgent(agent, configPath, projectRoot) {
     return { ok: false, detail: `config not found at ${configPath}` };
   }
 
-  const config = fs.readJsonSync(configPath);
+  let config;
+  try {
+    config = fs.readJsonSync(configPath);
+  } catch (err) {
+    return { ok: false, detail: `failed to parse JSON config at ${configPath}: ${err.message}` };
+  }
+
   const tarae = config?.mcpServers?.tarae;
   if (!tarae) {
     return { ok: false, detail: 'tarae MCP entry not found' };
@@ -61,10 +50,11 @@ function verifyJsonAgent(agent, configPath, projectRoot) {
     return { ok: false, detail: `linked to ${linkedRoot}` };
   }
 
-  return { ok: true, detail: `${agent} config linked` };
+  const rootMode = linkedRoot ? `fixed to ${linkedRoot}` : 'project root resolved at MCP call time';
+  return { ok: true, detail: `${agent} config linked at ${configPath} (${rootMode})` };
 }
 
-function verifyCodexConfig(configPath, projectRoot) {
+function verifyTomlAgent(agent, configPath, projectRoot) {
   if (!fs.existsSync(configPath)) {
     return { ok: false, detail: `config not found at ${configPath}` };
   }
@@ -74,17 +64,20 @@ function verifyCodexConfig(configPath, projectRoot) {
     return { ok: false, detail: 'tarae MCP table not found' };
   }
 
-  if (projectRoot && !content.includes(projectRoot)) {
+  const hasFixedRoot = content.includes('--project-root') || content.includes('TARAE_PROJECT_ROOT');
+  if (projectRoot && hasFixedRoot && !content.includes(projectRoot)) {
     return { ok: false, detail: `project root not found in codex config` };
   }
 
-  return { ok: true, detail: 'codex config linked' };
+  const rootMode = hasFixedRoot ? 'fixed project root' : 'project root resolved at MCP call time';
+  return { ok: true, detail: `${agent} config linked at ${configPath} (${rootMode})` };
 }
 
-function verifyAgent(agent, projectRoot) {
-  const configPath = getAgentConfigPath(agent);
-  const result = agent === 'codex'
-    ? verifyCodexConfig(configPath, projectRoot)
+function verifyAgent(agent, projectRoot, options = {}) {
+  const configPath = resolveAgentConfigPath(agent, options);
+  const configFormat = inferAgentConfigFormat(agent, configPath, options.configFormat);
+  const result = configFormat === 'codex-toml'
+    ? verifyTomlAgent(agent, configPath, projectRoot)
     : verifyJsonAgent(agent, configPath, projectRoot);
 
   if (result.ok) {
@@ -242,6 +235,8 @@ export async function verifyAction(options = {}) {
   const config = readGlobalConfig();
   const projectRoot = resolveProjectRoot({ projectRoot: options.projectRoot || config.project_root });
   const agent = options.agent || config.default_agent || null;
+  const configPath = options.configPath || (!options.agent ? config.agent_config_path : null);
+  const configFormat = options.configFormat || (!options.agent ? config.agent_config_format : null);
   const topaPath = path.join(os.homedir(), '.tarae', 'bin', topaBinaryName());
 
   console.log(chalk.cyan('=== Tarae Verify ===\n'));
@@ -259,10 +254,18 @@ export async function verifyAction(options = {}) {
 
   const agents = agent ? [agent] : SUPPORTED_AGENTS;
   for (const target of agents) {
-    if (!SUPPORTED_AGENTS.includes(target)) {
-      throw new Error(`Unsupported agent: ${target}. Supported agents are: ${SUPPORTED_AGENTS.join(', ')}`);
+    const normalized = target.toLowerCase();
+    if (!SUPPORTED_AGENTS.includes(normalized) && !configPath) {
+      throw new Error(
+        `Unsupported agent: ${target}. Supported agents are: ${supportedAgentsText()}. ` +
+        'Pass --config-path <path> to verify a custom MCP config.'
+      );
     }
-    ok = verifyAgent(target, projectRoot) && ok;
+    ok = verifyAgent(normalized, projectRoot, {
+      ...options,
+      configPath,
+      configFormat,
+    }) && ok;
   }
 
   if (options.mcpSmoke !== false) {

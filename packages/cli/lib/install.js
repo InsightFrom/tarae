@@ -19,16 +19,25 @@ export async function installAction(options = {}) {
   console.log(chalk.gray(`Project root: ${projectRoot}\n`));
 
   await initAction();
-  await linkAction(agent, { projectRoot });
+  const linkResult = await linkAction(agent, {
+    projectRoot,
+    configPath: options.configPath,
+    configFormat: options.configFormat,
+    fixedProjectRoot: options.fixedProjectRoot,
+  });
   mergeGlobalConfig({
-    default_agent: agent,
+    default_agent: linkResult?.agent || agent,
     project_root: projectRoot,
     project_name: projectName,
+    ...(linkResult?.configPath ? { agent_config_path: linkResult.configPath } : {}),
+    ...(linkResult?.configFormat ? { agent_config_format: linkResult.configFormat } : {}),
   });
 
   await verifyAction({
     agent,
     projectRoot,
+    configPath: linkResult?.configPath,
+    configFormat: linkResult?.configFormat,
     strict: true,
   });
 

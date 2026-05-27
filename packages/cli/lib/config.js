@@ -25,6 +25,82 @@ export function readGlobalConfig() {
   }
 }
 
+export function supportedAgentsText() {
+  return SUPPORTED_AGENTS.join(', ');
+}
+
+export function resolveUserPath(inputPath) {
+  if (!inputPath) {
+    return null;
+  }
+
+  if (inputPath === '~') {
+    return os.homedir();
+  }
+
+  if (inputPath.startsWith(`~${path.sep}`) || inputPath.startsWith('~/')) {
+    return path.join(os.homedir(), inputPath.slice(2));
+  }
+
+  return path.resolve(inputPath);
+}
+
+export function defaultAgentConfigPath(agent, homeDir = os.homedir()) {
+  if (agent === 'cursor') {
+    return path.join(
+      homeDir,
+      'Library/Application Support/Cursor/User/globalStorage/moose.connection-mcp/mcp.json'
+    );
+  }
+  if (agent === 'claude') {
+    return path.join(homeDir, '.claude.json');
+  }
+  if (agent === 'gemini') {
+    return path.join(homeDir, '.gemini/config/mcp_config.json');
+  }
+  if (agent === 'codex') {
+    return path.join(homeDir, '.codex', 'config.toml');
+  }
+
+  return null;
+}
+
+export function inferAgentConfigFormat(agent, configPath, explicitFormat) {
+  const requested = explicitFormat ? explicitFormat.toLowerCase() : null;
+  if (requested === 'json') {
+    return 'json';
+  }
+  if (requested === 'toml' || requested === 'codex-toml') {
+    return 'codex-toml';
+  }
+  if (requested) {
+    throw new Error(`Unsupported config format: ${explicitFormat}. Supported formats are: json, toml`);
+  }
+
+  if (agent === 'codex' || path.extname(configPath || '').toLowerCase() === '.toml') {
+    return 'codex-toml';
+  }
+
+  return 'json';
+}
+
+export function resolveAgentConfigPath(agent, options = {}) {
+  const configPath = resolveUserPath(options.configPath);
+  if (configPath) {
+    return configPath;
+  }
+
+  const defaultPath = defaultAgentConfigPath(agent);
+  if (defaultPath) {
+    return defaultPath;
+  }
+
+  throw new Error(
+    `Unsupported agent: ${agent}. Supported agents are: ${supportedAgentsText()}. ` +
+    'Pass --config-path <path> to link a custom MCP config.'
+  );
+}
+
 export function writeGlobalConfig(nextConfig) {
   const configPath = globalConfigPath();
   fs.ensureDirSync(path.dirname(configPath));

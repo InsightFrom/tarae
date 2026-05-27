@@ -33,7 +33,10 @@ program
 program
   .command('install')
   .description('Install Tarae for a project: init, link MCP, and verify')
-  .option('--agent <agent>', 'AI agent to link (cursor, claude, gemini, codex)', 'codex')
+  .option('--agent <agent>', 'AI agent to link (cursor, claude, gemini, codex, or a custom agent name)', 'codex')
+  .option('--config-path <path>', 'MCP config file path for custom or overridden agent config')
+  .option('--config-format <format>', 'MCP config format for --config-path (json or toml)')
+  .option('--fixed-project-root', 'Write --project-root into MCP config instead of resolving it at call time')
   .option('--project-root <path>', 'Project root directory that topa is allowed to watch')
   .action(async (options, cmd) => {
     try {
@@ -46,7 +49,10 @@ program
 
 program
   .command('link [agent]')
-  .description('Link Tarae MCP server to AI agents (e.g. cursor, claude, gemini, codex)')
+  .description('Link Tarae MCP server to an AI agent config')
+  .option('--config-path <path>', 'MCP config file path for custom or overridden agent config')
+  .option('--config-format <format>', 'MCP config format for --config-path (json or toml)')
+  .option('--fixed-project-root', 'Write --project-root into MCP config instead of resolving it at call time')
   .option('--project-root <path>', 'Project root directory that topa is allowed to watch')
   .action(async (agent, options, cmd) => {
     try {
@@ -61,6 +67,8 @@ program
   .command('verify')
   .description('Verify topa installation, local history, and MCP agent config')
   .option('--agent <agent>', 'Only verify one AI agent config')
+  .option('--config-path <path>', 'MCP config file path for custom or overridden agent config')
+  .option('--config-format <format>', 'MCP config format for --config-path (json or toml)')
   .option('--project-root <path>', 'Project root directory that topa is allowed to watch')
   .option('--strict', 'Exit with an error if any verification check fails')
   .option('--no-mcp-smoke', 'Skip spawning topa for MCP lifecycle tool-list smoke test')
@@ -119,6 +127,8 @@ program
   .command('unlink [agent]')
   .description('Remove Tarae MCP server from AI agent configs (cursor, claude, gemini, codex)')
   .option('--all', 'Unlink Tarae from every supported agent config')
+  .option('--config-path <path>', 'MCP config file path for custom or overridden agent config')
+  .option('--config-format <format>', 'MCP config format for --config-path (json or toml)')
   .action(async (agent, options, cmd) => {
     try {
       await unlinkAction(agent, cmd.opts());

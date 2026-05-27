@@ -17,18 +17,18 @@ Tarae is a non-invasive local observer for AI coding sessions. The `topa` MCP se
 
 ## Lifecycle
 
-1. Call `fetch_past_context` before starting substantial work.
-2. Call `start_session` with a clear objective.
+1. Call `fetch_past_context` before starting substantial work. Include `project_root` when the MCP client does not expose roots/list.
+2. Call `start_session` with a clear objective. Include `project_root` when the MCP client does not expose roots/list.
 3. Call `checkpoint` after meaningful milestones.
 4. Call `report_issue` when a build, test, or runtime failure matters.
 5. Call `end_session` when the task is complete.
 
 ## History Tools
 
-- `list_sessions(limit, status)`: show recent local sessions.
-- `read_session(session_id, format)`: read Markdown or JSONL for a session.
-- `search_history(query, file_path, event_type, limit)`: search local objective, summaries, errors, logs, and file paths.
-- `fetch_past_context(session_id)`: read one session or recent local context.
+- `list_sessions(project_root, limit, status)`: show recent local sessions.
+- `read_session(project_root, session_id, format)`: read Markdown or JSONL for a session.
+- `search_history(project_root, query, file_path, event_type, limit)`: search local objective, summaries, errors, logs, and file paths.
+- `fetch_past_context(project_root, session_id)`: read one session or recent local context.
 
 ## Privacy
 

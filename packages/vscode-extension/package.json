@@ -1,0 +1,82 @@
+{
+  "name": "tarae-vscode-extension",
+  "displayName": "Tarae",
+  "description": "Read local Tarae coding-session history from a VS Code sidebar.",
+  "version": "0.1.0",
+  "publisher": "tarae",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:tarae.sessions",
+    "onCommand:tarae.openLatestSession",
+    "onCommand:tarae.listSessions",
+    "onCommand:tarae.searchHistory",
+    "onCommand:tarae.openSessionMarkdown",
+    "onCommand:tarae.refreshSessions"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tarae",
+          "title": "Tarae",
+          "icon": "resources/tarae.svg"
+        }
+      ]
+    },
+    "views": {
+      "tarae": [
+        {
+          "id": "tarae.sessions",
+          "name": "Sessions"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "tarae.openLatestSession",
+        "title": "Tarae: Open Latest Session"
+      },
+      {
+        "command": "tarae.listSessions",
+        "title": "Tarae: List Sessions"
+      },
+      {
+        "command": "tarae.searchHistory",
+        "title": "Tarae: Search History"
+      },
+      {
+        "command": "tarae.openSessionMarkdown",
+        "title": "Tarae: Open Session Markdown"
+      },
+      {
+        "command": "tarae.refreshSessions",
+        "title": "Tarae: Refresh Sessions",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "tarae.refreshSessions",
+          "when": "view == tarae.sessions",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "tarae.openSessionMarkdown",
+          "when": "viewItem == taraeSession",
+          "group": "inline"
+        }
+      ]
+    }
+  }
+}

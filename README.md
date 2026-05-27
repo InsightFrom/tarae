@@ -87,9 +87,16 @@ The JSONL file is the canonical event log using `topa-event-v1`. The Markdown fi
 ## Documentation
 
 - [Installation](docs/guide/installation.md)
+- [VS Code Extension](docs/guide/vscode-extension.md)
 - [Architecture](docs/Architecture.md)
 - [Development](DEVELOP.md)
 - [Contributing](CONTRIBUTING.md)
+
+## VS Code Extension
+
+The read-only VS Code extension in `packages/vscode-extension` shows local Tarae history from `.tarae/topa/` in a sidebar. It can open the latest session, list sessions, search history, and open session Markdown without writing to project history.
+
+Run it from source with the VS Code Extension Development Host. See [VS Code Extension](docs/guide/vscode-extension.md).
 
 ## Build From Source
 
@@ -130,7 +137,8 @@ tarae doctor --project-root "$PWD"
 packages/
 ├── watcher/       # Rust topa binary and MCP server
 ├── cli/           # Node.js tarae CLI wrapper
-└── tarae-plugin/  # Agent-facing skill metadata
+├── tarae-plugin/  # Agent-facing skill metadata
+└── vscode-extension/ # Read-only VS Code history viewer
 docs/
 ├── guide/installation.md
 └── i18n/

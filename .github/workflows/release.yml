@@ -6,7 +6,9 @@ on:
       - "v*"
 
 permissions:
+  attestations: write
   contents: write
+  id-token: write
 
 jobs:
   create-release:
@@ -54,8 +56,16 @@ jobs:
         run: |
           mkdir -p dist
           cp "packages/watcher/${{ matrix.binary }}" "dist/${{ matrix.asset }}"
+      - name: Generate checksum
+        shell: bash
+        run: |
+          node -e "const fs = require('fs'); const crypto = require('crypto'); const path = require('path'); const file = process.argv[1]; const digest = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); fs.writeFileSync(file + '.sha256', digest + '  ' + path.basename(file) + '\n');" "dist/${{ matrix.asset }}"
+      - name: Generate artifact attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/${{ matrix.asset }}
       - name: Upload asset
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: gh release upload "$GITHUB_REF_NAME" "dist/${{ matrix.asset }}" --clobber
+        run: gh release upload "$GITHUB_REF_NAME" "dist/${{ matrix.asset }}" "dist/${{ matrix.asset }}.sha256" --clobber

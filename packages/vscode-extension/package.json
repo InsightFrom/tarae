@@ -1,11 +1,25 @@
 {
-  "name": "tarae-vscode-extension",
+  "name": "tarae",
   "displayName": "Tarae",
   "description": "Read local Tarae coding-session history from a VS Code sidebar.",
   "version": "0.1.0",
-  "publisher": "tarae",
-  "private": true,
+  "publisher": "insightfrom",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/InsightFrom/tarae.git",
+    "directory": "packages/vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/InsightFrom/tarae/issues"
+  },
+  "homepage": "https://github.com/InsightFrom/tarae#readme",
+  "keywords": [
+    "tarae",
+    "mcp",
+    "history",
+    "ai"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },

@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import chalk from 'chalk';
 import dotenv from 'dotenv';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -49,13 +50,27 @@ async function downloadTopaBinary(destinationPath) {
   const bytes = Buffer.from(await res.arrayBuffer());
   fs.writeFileSync(destinationPath, bytes);
   fs.chmodSync(destinationPath, 0o755);
+  clearMacQuarantine(destinationPath);
   console.log(chalk.green(`topa binary downloaded to: ${destinationPath}`));
+}
+
+function clearMacQuarantine(filePath) {
+  if (process.platform !== 'darwin') {
+    return;
+  }
+
+  try {
+    execFileSync('xattr', ['-d', 'com.apple.quarantine', filePath], { stdio: 'ignore' });
+    console.log(chalk.green(`macOS quarantine attribute cleared: ${filePath}`));
+  } catch {
+    // Most curl/node downloads do not have a quarantine attribute.
+  }
 }
 
 export async function initAction() {
   const homeDir = os.homedir();
   const taraeDir = path.join(homeDir, '.tarae');
-  const taraeBinDir = path.join(taraeDir, 'bin');
+  const taraeBinDir = process.env.TARAE_BIN_DIR || path.join(taraeDir, 'bin');
   const taraeBinPath = path.join(taraeBinDir, topaBinaryName());
 
   console.log(chalk.cyan('Initializing Tarae environment...'));
@@ -83,12 +98,13 @@ export async function initAction() {
     }
   }
 
-  if (process.env.TARAE_DEV === 'true') {
-    devMode = true;
+  if (process.env.TARAE_DEV !== undefined) {
+    devMode = process.env.TARAE_DEV === 'true';
   }
 
   const repoRoot = path.resolve(__dirname, '../../..');
   const topaSourceDev = path.join(repoRoot, 'packages/watcher/target/release', topaBinaryName());
+  const forceDownload = process.env.TARAE_FORCE_TOPA_DOWNLOAD === 'true';
 
   // 3. Process topa binary
   if (devMode) {
@@ -109,12 +125,13 @@ export async function initAction() {
   } else {
     console.log(chalk.blue('Production mode detected. Preparing pre-built topa binary...'));
 
-    if (fs.existsSync(topaSourceDev)) {
+    if (!forceDownload && fs.existsSync(topaSourceDev)) {
       if (fs.existsSync(taraeBinPath)) {
         fs.removeSync(taraeBinPath);
       }
       fs.copySync(topaSourceDev, taraeBinPath);
       fs.chmodSync(taraeBinPath, 0o755);
+      clearMacQuarantine(taraeBinPath);
       console.log(chalk.green(`Pre-built topa binary placed at: ${taraeBinPath}`));
     } else {
       await downloadTopaBinary(taraeBinPath);

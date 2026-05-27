@@ -14,7 +14,6 @@ function Require-Command($Name) {
 Require-Command git
 Require-Command node
 Require-Command npm
-Require-Command cargo
 
 Write-Host "Installing Tarae from $RepoUrl ($Ref)"
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
@@ -32,14 +31,16 @@ if (Test-Path (Join-Path $InstallDir ".git")) {
   git clone --branch $Ref $RepoUrl $InstallDir
 }
 
-Write-Host "Building topa"
-cargo build --release --manifest-path (Join-Path $InstallDir "packages\watcher\Cargo.toml")
-
 Write-Host "Installing CLI dependencies"
 npm install --omit=dev --prefix (Join-Path $InstallDir "packages\cli")
 
-Write-Host "Preparing local binaries"
-$env:TARAE_DEV = "true"
+if (-not $env:TARAE_TOPA_DOWNLOAD_BASE_URL -and $Ref -like "v*") {
+  $env:TARAE_TOPA_DOWNLOAD_BASE_URL = "https://github.com/InsightFrom/tarae/releases/download/$Ref"
+}
+
+Write-Host "Downloading topa release binary"
+$env:TARAE_DEV = "false"
+$env:TARAE_FORCE_TOPA_DOWNLOAD = "true"
 node (Join-Path $InstallDir "packages\cli\bin\index.js") init
 
 $Shim = Join-Path $BinDir "tarae.ps1"

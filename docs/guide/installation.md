@@ -8,7 +8,7 @@ Translations: [한국어](../i18n/installation.ko.md) | [日本語](../i18n/inst
 
 - `git`
 - Node.js 18+ with `npm`
-- Rust stable with `cargo`
+- Network access to GitHub releases for the prebuilt `topa` binary
 - An AI app or agent that can launch local MCP servers
 
 ## Quick Start
@@ -38,6 +38,19 @@ Windows PowerShell:
 ```
 
 Restart the target AI application after linking MCP config.
+
+## Release Integrity
+
+Release binaries are downloaded from GitHub Releases. Each `topa-*` release asset has a matching `.sha256` checksum, and release builds publish GitHub artifact attestations.
+
+Example verification for macOS Apple Silicon:
+
+```bash
+curl -LO https://github.com/InsightFrom/tarae/releases/latest/download/topa-darwin-arm64
+curl -LO https://github.com/InsightFrom/tarae/releases/latest/download/topa-darwin-arm64.sha256
+shasum -a 256 -c topa-darwin-arm64.sha256
+gh attestation verify topa-darwin-arm64 -R InsightFrom/tarae
+```
 
 ## Add Tarae To PATH
 
@@ -89,6 +102,8 @@ Expected local files after a session:
 ```
 
 ## Build From Source
+
+Building from source requires Rust stable with `cargo`.
 
 From the Tarae repository:
 
@@ -144,6 +159,8 @@ Project-local history remains under `.tarae/` unless you delete it yourself afte
 ## Troubleshooting
 
 - `Missing required command`: install the prerequisite named in the error.
-- `topa binary not found`: run `./scripts/build-cli.sh` from the Tarae repository, then retry `tarae install`.
+- `Failed to download topa binary`: check network access to `https://github.com/InsightFrom/tarae/releases/latest/download/`.
+- macOS says the binary cannot be checked: install with the script instead of a browser download, or remove the quarantine attribute from the installed binary with `xattr -d com.apple.quarantine ~/.tarae/bin/topa`.
+- `topa binary not found` after building from source: run `./scripts/build-cli.sh` from the Tarae repository, then retry `tarae install`.
 - The AI app cannot see Tarae tools: restart the app after linking MCP settings.
 - Verification fails on project root: pass an absolute path with `--project-root`.

@@ -16,7 +16,6 @@ need() {
 need git
 need node
 need npm
-need cargo
 
 echo "Installing Tarae from $REPO_URL ($REF)"
 mkdir -p "$BIN_DIR" "$(dirname "$INSTALL_DIR")"
@@ -29,14 +28,15 @@ else
   git clone --branch "$REF" "$REPO_URL" "$INSTALL_DIR"
 fi
 
-echo "Building topa"
-cargo build --release --manifest-path "$INSTALL_DIR/packages/watcher/Cargo.toml"
-
 echo "Installing CLI dependencies"
 npm install --omit=dev --prefix "$INSTALL_DIR/packages/cli"
 
-echo "Preparing local binaries"
-TARAE_DEV=true node "$INSTALL_DIR/packages/cli/bin/index.js" init
+if [ -z "${TARAE_TOPA_DOWNLOAD_BASE_URL:-}" ] && [[ "$REF" == v* ]]; then
+  export TARAE_TOPA_DOWNLOAD_BASE_URL="https://github.com/InsightFrom/tarae/releases/download/$REF"
+fi
+
+echo "Downloading topa release binary"
+TARAE_DEV=false TARAE_FORCE_TOPA_DOWNLOAD=true node "$INSTALL_DIR/packages/cli/bin/index.js" init
 
 cat > "$BIN_DIR/tarae" <<EOF
 #!/usr/bin/env bash

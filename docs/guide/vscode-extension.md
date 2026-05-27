@@ -27,6 +27,14 @@ From this repository:
 code --extensionDevelopmentPath="$PWD/packages/vscode-extension" /path/to/project-with-tarae-history
 ```
 
+`/path/to/project-with-tarae-history` means the workspace you want to inspect, not the extension package. Use a project that contains `.tarae/topa/`. If the `code` command is not in your `PATH` on macOS, use the bundled CLI directly:
+
+```bash
+"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+  --extensionDevelopmentPath="$PWD/packages/vscode-extension" \
+  /path/to/project-with-tarae-history
+```
+
 Or use the Extension Development Host from VS Code:
 
 1. Open `packages/vscode-extension` in VS Code.
@@ -34,6 +42,22 @@ Or use the Extension Development Host from VS Code:
 3. In the Extension Development Host window, open a project that contains `.tarae/topa/`.
 
 The Tarae activity bar item shows local sessions for the first workspace folder.
+
+## Install A Local VSIX
+
+Package the extension and install it into the local VS Code profile:
+
+```bash
+cd packages/vscode-extension
+npx --yes @vscode/vsce package --no-dependencies --out /tmp/tarae.vsix
+code --install-extension /tmp/tarae.vsix
+```
+
+On macOS without the `code` command:
+
+```bash
+"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension /tmp/tarae.vsix
+```
 
 ## Commands
 

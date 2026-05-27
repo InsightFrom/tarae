@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
+import fs from 'fs';
 import chalk from 'chalk';
 import { initAction } from '../lib/init.js';
 import { installAction } from '../lib/install.js';
@@ -11,12 +12,14 @@ import { unlinkAction } from '../lib/unlink.js';
 import { uninstallAction } from '../lib/uninstall.js';
 import { verifyAction } from '../lib/verify.js';
 
+const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
 const program = new Command();
 
 program
   .name('tarae')
   .description('Tarae CLI - local AI Agent MCP history')
-  .version('0.1.0');
+  .version(packageJson.version);
 
 program
   .command('init')

@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import chalk from 'chalk';
 import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
 import {
   SUPPORTED_AGENTS,
   inferAgentConfigFormat,
@@ -11,6 +12,13 @@ import {
   resolveProjectRoot,
   supportedAgentsText,
 } from './config.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+function cliVersion() {
+  return fs.readJsonSync(path.resolve(__dirname, '../package.json')).version;
+}
 
 function pass(label, detail = '') {
   console.log(`${chalk.green('🟢')} ${label}${detail ? chalk.gray(` — ${detail}`) : ''}`);
@@ -166,7 +174,7 @@ async function checkMcpLifecycleTools({ topaPath, projectRoot }) {
       params: {
         protocolVersion: '2024-11-05',
         capabilities: {},
-        clientInfo: { name: 'tarae-cli-verify', version: '0.1.0' },
+        clientInfo: { name: 'tarae-cli-verify', version: cliVersion() },
       },
     });
     await initialize;

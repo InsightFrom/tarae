@@ -142,6 +142,8 @@ tarae uninstall --all
 
 `topa` is launched by the MCP client as a stdio child process. It exits when the client closes the MCP connection, usually when you close or restart the AI app. To stop recording a session, call `end_session`. To prevent future launches, run `tarae unlink <agent>` and restart the AI app.
 
+`topa` does not daemonize or fork itself. If you see multiple `topa serve` processes, they are usually separate MCP child processes held by active agent sessions, windows, or extension hosts. Run `tarae status --project-root "$PWD"` to list detected local `topa` processes.
+
 ## Verify
 
 ```bash

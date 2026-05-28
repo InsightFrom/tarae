@@ -66,6 +66,29 @@ On macOS without the `code` command:
 - `Tarae: Search History`
 - `Tarae: Open Session Markdown`
 
+## Search Syntax
+
+`Tarae: Search History` searches session JSONL events, not only rendered Markdown. Plain words must all match somewhere in the event, session metadata, file paths, git metadata, summaries, errors, or log tails.
+
+Supported filters:
+
+```text
+type:checkpoint
+file:packages/watcher
+agent:codex
+tag:#release
+session:<session-id>
+status:completed
+after:2026-05-01
+before:2026-05-28
+```
+
+Filters can be combined:
+
+```text
+type:auto_checkpoint file:packages/cli after:2026-05-27
+```
+
 ## Manual Verification
 
 Use a project with Tarae history, then verify:
@@ -73,5 +96,5 @@ Use a project with Tarae history, then verify:
 - The Tarae sidebar lists `latest.md` and session entries.
 - `Tarae: Open Latest Session` opens `.tarae/topa/latest.md` as Markdown.
 - `Tarae: List Sessions` shows sessions from `session_index.jsonl`.
-- `Tarae: Search History` finds text from session objectives, summaries, Markdown, or JSONL.
+- `Tarae: Search History` finds event-level JSONL matches by text and filters.
 - Opened session documents are read-only virtual documents.

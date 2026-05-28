@@ -507,7 +507,7 @@ impl TaraeServer {
         }
 
         // Get git ref
-        let git_ref = crate::git::diff::get_current_git_ref().ok();
+        let git_ref = crate::git::diff::get_current_git_ref_for_root(&project_root).ok();
 
         let payload = EventPayload {
             summary: Some(filtered_summary.clone()),

@@ -43,7 +43,7 @@ flowchart TB
 3. The AI agent calls Tarae lifecycle tools while it works. Tarae resolves the project root from MCP `roots/list`, from a tool `project_root` argument, or from explicit fixed-root configuration.
 4. `topa` appends canonical JSONL events under `.tarae/topa/sessions/`.
 5. `topa` regenerates a Markdown projection for the same session and updates `latest.md`.
-6. Search tools scan `session_index.jsonl` and session JSONL files when an agent asks for prior context.
+6. Search tools and the VS Code extension scan `session_index.jsonl` and session JSONL files when an agent asks for prior context.
 
 ## File Layout
 
@@ -115,7 +115,17 @@ History:
 - `read_session`
 - `search_history`
 
-Search is intentionally simple in v1: it scans `session_index.jsonl` and session JSONL files for objective, summary, error text, log tail, file path, and event type matches.
+Search scans `session_index.jsonl` and session JSONL files for objective, summary, error text, log tail, file path, and event type matches. UI clients should treat `sessions/<session-id>.jsonl` as the source of truth and can expose event-level filters such as event type, file path, actor/agent, tag, session id, status, and date range.
+
+## Process Lifecycle
+
+`topa` does not daemonize or fork itself. An MCP client starts it as a stdio child process from the configured command, usually:
+
+```text
+topa serve
+```
+
+The process is expected to stay alive while the MCP client keeps the stdio connection open. It exits when that connection closes, typically after the AI app or extension host is restarted or closed. Multiple live `topa serve` processes usually mean the MCP client has multiple active sessions, windows, or tool hosts. `tarae verify` also starts a short-lived smoke-test process and terminates it after the tool-list check.
 
 ## Privacy And Safety Boundary
 

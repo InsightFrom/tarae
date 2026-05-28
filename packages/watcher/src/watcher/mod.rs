@@ -91,7 +91,14 @@ async fn start_background_watcher_loop(server: TaraeServer, project_root: std::p
                                 let taken = auto_checkpoint.take_pending();
                                 info!(files = taken.len(), "Auto-checkpoint threshold reached, sending event");
 
-                                let git_ref = crate::git::diff::get_current_git_ref().ok();
+                                let taken =
+                                    crate::git::diff::enrich_file_changes_with_diff_stats(
+                                        &project_root,
+                                        taken,
+                                    );
+                                let git_ref =
+                                    crate::git::diff::get_current_git_ref_for_root(&project_root)
+                                        .ok();
                                 let payload = EventPayload {
                                     summary: Some(auto_checkpoint_summary(
                                         &server.config.summary_language,
@@ -126,7 +133,12 @@ async fn start_background_watcher_loop(server: TaraeServer, project_root: std::p
                     let taken = std::mem::take(&mut pending_human_changes);
                     info!(files = taken.len(), "5s debounce elapsed, sending HumanIntervention event");
 
-                    let git_ref = crate::git::diff::get_current_git_ref().ok();
+                    let taken = crate::git::diff::enrich_file_changes_with_diff_stats(
+                        &project_root,
+                        taken,
+                    );
+                    let git_ref =
+                        crate::git::diff::get_current_git_ref_for_root(&project_root).ok();
                     let payload = EventPayload {
                         summary: Some(human_intervention_summary(
                             &server.config.summary_language,

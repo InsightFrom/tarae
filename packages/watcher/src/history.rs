@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use crate::mcp::schema::{
     ActorType, EventPayload, EventType, FileAction, FileChange, GitRef, TopaEvent,
@@ -13,6 +14,7 @@ use crate::mcp::schema::{
 const EVENT_SCHEMA_VERSION: &str = "topa-event-v1";
 const SESSION_DOC_SCHEMA_VERSION: &str = "topa-session-v1";
 const INDEX_SCHEMA_VERSION: &str = "topa-session-index-v1";
+const HISTORY_LOCK_STALE_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 pub struct HistoryStore {
@@ -54,6 +56,16 @@ pub struct SearchHit {
     pub files: Vec<String>,
 }
 
+struct HistoryWriteLock {
+    path: PathBuf,
+}
+
+impl Drop for HistoryWriteLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 impl HistoryStore {
     pub fn open(project_root: impl AsRef<Path>) -> Result<Self> {
         let project_root = project_root.as_ref().canonicalize().with_context(|| {
@@ -79,6 +91,7 @@ impl HistoryStore {
     }
 
     pub fn append_event(&self, event: &TopaEvent) -> Result<String> {
+        let _lock = self.acquire_write_lock()?;
         if event.schema_version != EVENT_SCHEMA_VERSION {
             anyhow::bail!("unsupported event schema: {}", event.schema_version);
         }
@@ -121,6 +134,7 @@ impl HistoryStore {
         objective: Option<&str>,
         agent_name: Option<&str>,
     ) -> Result<()> {
+        let _lock = self.acquire_write_lock()?;
         let record = ActiveSessionRecord {
             session_id: session_id.to_string(),
             objective: objective.map(str::to_string),
@@ -135,6 +149,7 @@ impl HistoryStore {
     }
 
     pub fn clear_active_session(&self) -> Result<()> {
+        let _lock = self.acquire_write_lock()?;
         let path = self.topa_dir.join("active_session.json");
         if path.exists() {
             fs::remove_file(path)?;
@@ -149,6 +164,15 @@ impl HistoryStore {
         }
         let record: ActiveSessionRecord = serde_json::from_slice(&fs::read(path)?)?;
         Ok(Some(record.session_id))
+    }
+
+    pub fn get_active_session_record(&self) -> Result<Option<ActiveSessionRecord>> {
+        let path = self.topa_dir.join("active_session.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let record: ActiveSessionRecord = serde_json::from_slice(&fs::read(path)?)?;
+        Ok(Some(record))
     }
 
     pub fn list_sessions(
@@ -295,6 +319,38 @@ impl HistoryStore {
         self.topa_dir.join("session_index.jsonl")
     }
 
+    fn acquire_write_lock(&self) -> Result<HistoryWriteLock> {
+        let lock_path = self.topa_dir.join("history.lock");
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(mut file) => {
+                    writeln!(file, "pid={}", std::process::id())?;
+                    writeln!(file, "created_at={}", Utc::now().to_rfc3339())?;
+                    return Ok(HistoryWriteLock { path: lock_path });
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if is_stale_lock(&lock_path) {
+                        let _ = fs::remove_file(&lock_path);
+                        continue;
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        anyhow::bail!(
+                            "timed out waiting for history write lock at {}",
+                            lock_path.display()
+                        );
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+    }
+
     fn read_events(&self, session_id: &str) -> Result<Vec<TopaEvent>> {
         let path = self.session_jsonl_path(session_id);
         if !path.exists() {
@@ -428,6 +484,19 @@ fn read_lines(path: &Path) -> Result<Vec<String>> {
         .lines()
         .collect::<std::io::Result<Vec<_>>>()
         .map_err(Into::into)
+}
+
+fn is_stale_lock(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return true;
+    };
+    let Ok(modified) = metadata.modified() else {
+        return true;
+    };
+    SystemTime::now()
+        .duration_since(modified)
+        .map(|age| age > HISTORY_LOCK_STALE_AFTER)
+        .unwrap_or(true)
 }
 
 fn push_optional(target: &mut String, value: Option<&str>) {

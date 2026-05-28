@@ -70,7 +70,7 @@ tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root 
 
 ## 停止 Topa
 
-`topa` 不是守护进程，而是 MCP 客户端启动的 stdio 子进程。关闭或重启 AI 应用时，MCP 连接会关闭，`topa` 也会退出。
+`topa serve` 现在是保持 MCP stdio 兼容的轻量桥接进程。第一次 lifecycle 工具调用会启动或复用项目级 `topa daemon`，并由这个单一 daemon 负责文件监听、活动会话状态和历史写入。项目 daemon 可用 `topa shutdown --project-root "$PWD"` 停止。
 
 记录会话请调用 `end_session`。如果要阻止以后继续启动，请 unlink Tarae 后重启 AI 应用:
 
@@ -90,6 +90,7 @@ tarae doctor --project-root "$PWD"
 ```text
 .tarae/topa/session_index.jsonl
 .tarae/topa/latest.md
+.tarae/topa/runtime/server.json
 .tarae/topa/sessions/<session-id>.jsonl
 .tarae/topa/sessions/<session-id>.md
 ```

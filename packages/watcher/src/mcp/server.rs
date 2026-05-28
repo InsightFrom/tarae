@@ -3,11 +3,14 @@ use rmcp::ServiceExt;
 use std::sync::Arc;
 use tokio::io::{stdin, stdout};
 
-use super::tools::TaraeServer;
+use super::tools::{TaraeBridgeServer, TaraeServer};
 use crate::config::AppConfig;
 
 /// Run the MCP server over stdio transport.
-pub async fn run_stdio_server(override_project_root: Option<String>) -> Result<()> {
+pub async fn run_stdio_server(
+    override_project_root: Option<String>,
+    direct_stdio: bool,
+) -> Result<()> {
     let mut config = AppConfig::load().unwrap_or_else(|_| AppConfig::default());
 
     if let Some(project_root) = override_project_root {
@@ -25,18 +28,29 @@ pub async fn run_stdio_server(override_project_root: Option<String>) -> Result<(
     );
 
     let config_arc = Arc::new(config);
-    let server = TaraeServer::new(config_arc.clone());
+    let use_direct_stdio = direct_stdio
+        || std::env::var("TARAE_DISABLE_DAEMON")
+            .map(|value| value == "true" || value == "1")
+            .unwrap_or(false);
 
+    if use_direct_stdio {
+        let server = TaraeServer::new(config_arc.clone());
+        let service = server.clone().serve((stdin(), stdout())).await?;
+
+        // Legacy/debug mode: this process owns the watcher and history writes.
+        server.core().start_configured_watcher().await;
+        service.waiting().await?;
+        tracing::info!("MCP direct stdio server shut down");
+        return Ok(());
+    }
+
+    let server = TaraeBridgeServer::new(config_arc);
     let service = server.clone().serve((stdin(), stdout())).await?;
 
-    // Spawn a watcher only when a safe root is available at startup.
-    // Without a configured root, start_session can resolve one later from MCP roots/list
-    // or from its project_root parameter and start the watcher then.
-    server.start_configured_watcher().await;
-
-    // Block until the transport is closed (client disconnects)
+    // Bridge mode never starts a file watcher. The project daemon owns watching,
+    // history writes, and active session state.
     service.waiting().await?;
 
-    tracing::info!("MCP server shut down");
+    tracing::info!("MCP stdio bridge shut down");
     Ok(())
 }

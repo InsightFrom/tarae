@@ -58,20 +58,19 @@ pub fn enrich_file_changes_with_diff_stats(
 
     merged
         .into_values()
-        .map(|mut change| {
-            if let Some(stat) = stats.get(&change.path) {
-                if let Some(action) = &stat.action {
-                    change.action = action.clone();
-                }
-                change.lines_added = stat.lines_added;
-                change.lines_removed = stat.lines_removed;
+        .filter_map(|mut change| {
+            let stat = stats.get(&change.path)?;
+            if let Some(action) = &stat.action {
+                change.action = action.clone();
             }
+            change.lines_added = stat.lines_added;
+            change.lines_removed = stat.lines_removed;
             if matches!(change.action, FileAction::Created) && change.lines_added == 0 {
                 if let Some(lines_added) = count_file_lines(project_root, &change.path) {
                     change.lines_added = lines_added;
                 }
             }
-            change
+            Some(change)
         })
         .collect()
 }
@@ -306,6 +305,26 @@ mod tests {
         assert_eq!(enriched[0].action, FileAction::Created);
         assert_eq!(enriched[0].lines_added, 2);
         assert_eq!(enriched[0].lines_removed, 0);
+    }
+
+    #[test]
+    fn enrich_file_changes_drops_paths_without_git_diff() {
+        let dir = tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        fs::write(dir.path().join("tracked.txt"), "one\n").unwrap();
+        commit_all(&repo, "initial");
+
+        let enriched = enrich_file_changes_with_diff_stats(
+            dir.path(),
+            vec![FileChange {
+                path: "tracked.txt".to_string(),
+                action: FileAction::Modified,
+                lines_added: 0,
+                lines_removed: 0,
+            }],
+        );
+
+        assert!(enriched.is_empty());
     }
 
     fn commit_all(repo: &git2::Repository, message: &str) {

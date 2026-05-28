@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
+import net from 'net';
 import { execFileSync } from 'child_process';
 import { readGlobalConfig, resolveProjectRoot } from './config.js';
 
@@ -17,22 +18,105 @@ export async function statusAction(options = {}) {
   console.log(chalk.gray(`Project root: ${projectRoot}`));
   console.log(chalk.gray(`Local history: ${topaDir}`));
   console.log(chalk.green(`🟢 local session logs: ${sessionCount}`));
-  console.log(chalk.gray('MCP clients start topa as a stdio child process through their MCP configuration.'));
+  await printDaemonStatus(projectRoot);
+  console.log(chalk.gray('MCP clients start lightweight topa stdio bridge processes. The project daemon owns watching and history writes.'));
   printTopaProcesses();
+}
+
+async function printDaemonStatus(projectRoot) {
+  const metadataPath = path.join(projectRoot, '.tarae', 'topa', 'runtime', 'server.json');
+  if (!fs.existsSync(metadataPath)) {
+    console.log(chalk.yellow('🟡 state daemon: not running'));
+    return;
+  }
+
+  let metadata;
+  try {
+    metadata = fs.readJsonSync(metadataPath);
+  } catch (err) {
+    console.log(chalk.red(`🔴 state daemon: invalid runtime metadata (${err.message})`));
+    return;
+  }
+
+  const health = await probeDaemonHealth(metadata);
+  if (health.ok) {
+    console.log(chalk.green(`🟢 state daemon: healthy pid=${health.value.pid}`));
+    console.log(chalk.gray(`  endpoint: ${metadata.endpoint}`));
+    console.log(chalk.gray(`  heartbeat: ${health.value.heartbeat_at}`));
+  } else {
+    console.log(chalk.yellow(`🟡 state daemon: stale or unreachable (${health.error})`));
+    console.log(chalk.gray(`  metadata pid=${metadata.pid || 'unknown'} endpoint=${metadata.endpoint || 'unknown'}`));
+  }
+}
+
+function probeDaemonHealth(metadata) {
+  return new Promise((resolve) => {
+    let url;
+    try {
+      url = new URL(metadata.endpoint);
+    } catch {
+      resolve({ ok: false, error: 'invalid endpoint' });
+      return;
+    }
+
+    const body = JSON.stringify({ method: 'health', params: {} });
+    const socket = net.createConnection({
+      host: url.hostname,
+      port: Number(url.port),
+    });
+    let response = '';
+    const done = (value) => {
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(1500, () => done({ ok: false, error: 'health timeout' }));
+    socket.on('error', (err) => done({ ok: false, error: err.message }));
+    socket.on('data', (chunk) => {
+      response += chunk.toString('utf8');
+    });
+    socket.on('end', () => {
+      const splitAt = response.indexOf('\r\n\r\n');
+      if (splitAt < 0) {
+        done({ ok: false, error: 'invalid health response' });
+        return;
+      }
+      const head = response.slice(0, splitAt);
+      const payload = response.slice(splitAt + 4);
+      if (!head.startsWith('HTTP/1.1 200')) {
+        done({ ok: false, error: payload.trim() || 'health HTTP error' });
+        return;
+      }
+      try {
+        const parsed = JSON.parse(payload);
+        if (!parsed.ok) {
+          done({ ok: false, error: parsed.error || 'health RPC error' });
+          return;
+        }
+        done({ ok: true, value: parsed.result });
+      } catch (err) {
+        done({ ok: false, error: err.message });
+      }
+    });
+    socket.write(
+      `POST /rpc HTTP/1.1\r\nHost: ${url.host}\r\nAuthorization: Bearer ${metadata.auth_token}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`
+    );
+  });
 }
 
 function printTopaProcesses() {
   const processes = listTopaProcesses();
   if (processes.length === 0) {
-    console.log(chalk.yellow('🟡 running topa processes: none detected'));
+    console.log(chalk.yellow('🟡 topa bridge/daemon processes: none detected'));
     return;
   }
 
-  console.log(chalk.green(`🟢 running topa processes: ${processes.length}`));
+  const daemons = processes.filter((proc) => /\bdaemon\b/.test(proc.command));
+  const bridges = processes.filter((proc) => /\bserve\b/.test(proc.command));
+  console.log(chalk.green(`🟢 topa processes: ${processes.length} (${daemons.length} daemon, ${bridges.length} bridge)`));
   for (const proc of processes) {
     console.log(chalk.gray(`  - pid=${proc.pid} ppid=${proc.ppid} etime=${proc.etime} ${proc.command}`));
   }
-  console.log(chalk.gray('These processes exit when the MCP client closes the stdio connection, usually after the AI app is restarted or closed.'));
+  console.log(chalk.gray('Bridge processes exit with MCP stdio connections; the project daemon remains the single resource owner.'));
 }
 
 function listTopaProcesses() {
@@ -61,7 +145,7 @@ function listTopaProcesses() {
       .split(/\r?\n/)
       .map((line) => parseTopaProcessLine(line))
       .filter(Boolean)
-      .filter((proc) => /(^|\/)topa(\s|$)/.test(proc.command) && /\bserve\b/.test(proc.command));
+      .filter((proc) => /(^|\/)topa(\s|$)/.test(proc.command) && /\b(serve|daemon)\b/.test(proc.command));
   } catch {
     return [];
   }

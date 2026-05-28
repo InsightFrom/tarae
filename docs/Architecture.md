@@ -1,6 +1,6 @@
 # Architecture
 
-Tarae is a local MCP observer for AI coding sessions. The main runtime is `topa`, a Rust binary that runs as an MCP stdio server, records session events, watches local file changes, and stores history inside the project.
+Tarae is a local MCP observer for AI coding sessions. The main runtime is `topa`, a Rust binary that keeps MCP stdio compatibility through a lightweight bridge while one project-scoped daemon records session events, watches local file changes, and stores history inside the project.
 
 The design goal is simple: keep the useful context from AI-assisted development close to the codebase, in formats that both people and AI agents can read.
 
@@ -9,10 +9,11 @@ The design goal is simple: keep the useful context from AI-assisted development 
 ```mermaid
 flowchart TB
     User["Developer"] -->|"asks agent to work"| Agent["AI Agent"]
-    Agent <-->|"MCP stdio"| Topa["topa (Rust MCP server)"]
-    Files["Project filesystem"] -->|"file events"| Topa
-    Git["Git metadata"] -->|"branch and commit"| Topa
-    Topa --> History[".tarae/topa"]
+    Agent <-->|"MCP stdio"| Bridge["topa serve (stdio bridge)"]
+    Bridge <-->|"local loopback RPC"| Daemon["topa daemon (project state owner)"]
+    Files["Project filesystem"] -->|"file events"| Daemon
+    Git["Git metadata"] -->|"branch and commit"| Daemon
+    Daemon --> History[".tarae/topa"]
 
     subgraph HistoryFiles["Local History Files"]
         Active["active_session.json"]
@@ -20,6 +21,7 @@ flowchart TB
         Md["sessions/<session-id>.md"]
         Index["session_index.jsonl"]
         Latest["latest.md"]
+        Runtime["runtime/server.json"]
     end
 
     History --> Active
@@ -27,11 +29,12 @@ flowchart TB
     History --> Md
     History --> Index
     History --> Latest
+    History --> Runtime
 ```
 
 ## Components
 
-- `packages/watcher`: Rust crate that builds `topa`. It hosts the MCP server, watches file changes, collects git metadata, masks sensitive text, and writes local history.
+- `packages/watcher`: Rust crate that builds `topa`. It hosts the stdio bridge and project daemon, watches file changes, collects git metadata, masks sensitive text, and writes local history.
 - `packages/cli`: Node.js CLI for install, link, verify, doctor, status, unlink, and uninstall workflows.
 - `packages/tarae-plugin`: agent-facing skill metadata that describes the Tarae lifecycle.
 - `docs`: public installation, architecture, and contributor documentation.
@@ -41,9 +44,10 @@ flowchart TB
 1. The user links Tarae to an AI agent with `tarae install --agent <agent> --project-root <path>`.
 2. The CLI writes the target agent MCP configuration so it can launch `topa serve`.
 3. The AI agent calls Tarae lifecycle tools while it works. Tarae resolves the project root from MCP `roots/list`, from a tool `project_root` argument, or from explicit fixed-root configuration.
-4. `topa` appends canonical JSONL events under `.tarae/topa/sessions/`.
-5. `topa` regenerates a Markdown projection for the same session and updates `latest.md`.
-6. Search tools and the VS Code extension scan `session_index.jsonl` and session JSONL files when an agent asks for prior context.
+4. `topa serve` starts or reuses one project-scoped `topa daemon` through `.tarae/topa/runtime/server.json`.
+5. The daemon appends canonical JSONL events under `.tarae/topa/sessions/`.
+6. The daemon regenerates a Markdown projection for the same session and updates `latest.md`.
+7. Search tools and the VS Code extension scan `session_index.jsonl` and session JSONL files when an agent asks for prior context.
 
 ## File Layout
 
@@ -52,6 +56,8 @@ flowchart TB
 └── topa/
     ├── active_session.json
     ├── latest.md
+    ├── runtime/
+    │   └── server.json
     ├── session_index.jsonl
     └── sessions/
         ├── <session-id>.jsonl
@@ -63,6 +69,7 @@ flowchart TB
 - `latest.md` points people and agents to the most recent rendered session.
 - `session_index.jsonl` is a compact search and listing index.
 - `active_session.json` tracks the currently open lifecycle session.
+- `runtime/server.json` tracks the local project daemon endpoint, pid, version, heartbeat, and loopback RPC token metadata.
 
 ## Event Model
 
@@ -119,13 +126,15 @@ Search scans `session_index.jsonl` and session JSONL files for objective, summar
 
 ## Process Lifecycle
 
-`topa` does not daemonize or fork itself. An MCP client starts it as a stdio child process from the configured command, usually:
+An MCP client starts `topa serve` as a stdio child process from the configured command, usually:
 
 ```text
 topa serve
 ```
 
-The process is expected to stay alive while the MCP client keeps the stdio connection open. It exits when that connection closes, typically after the AI app or extension host is restarted or closed. Multiple live `topa serve` processes usually mean the MCP client has multiple active sessions, windows, or tool hosts. `tarae verify` also starts a short-lived smoke-test process and terminates it after the tool-list check.
+`topa serve` is a bridge process. It exits when the MCP stdio connection closes, typically after the AI app or extension host is restarted or closed. The first tool call starts or reuses `topa daemon --project-root <root>`, and that daemon is the only watcher, history writer, and active session owner for the project.
+
+The daemon listens only on loopback with a per-daemon token stored in project-local runtime metadata. Startup is guarded by `.tarae/topa/runtime/server.lock`; stale metadata is ignored when health checks fail, versions differ, or the endpoint no longer responds. Use `topa shutdown --project-root <root>` to stop a project daemon.
 
 ## Privacy And Safety Boundary
 
@@ -146,6 +155,7 @@ The CLI verification flow checks:
 - Local history writeability.
 - MCP configuration for the selected agent.
 - Optional MCP lifecycle smoke test.
+- Optional daemon reuse smoke test using a temporary project root.
 
 ## Extension Points
 

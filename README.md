@@ -54,6 +54,36 @@ For an unsupported MCP-capable agent, provide its config path:
 ~/.tarae/bin/tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 ```
 
+## Upgrade
+
+If file change entries show `lines_added: 0` and `lines_removed: 0` for every watched file, first check which Tarae executable is actually being used:
+
+```bash
+command -v tarae
+tarae --version
+~/.tarae/bin/tarae --version
+~/.tarae/bin/topa --version
+~/.tarae/bin/tarae verify --project-root "$PWD" --no-mcp-smoke
+```
+
+Upgrade the project-local install and restart the AI app so it launches fresh MCP bridge processes:
+
+```bash
+~/.tarae/bin/tarae upgrade --ref v0.1.5 --project-root "$PWD"
+```
+
+If your installed CLI does not have `upgrade` yet, rerun the installer for the target release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.5 bash
+```
+
+For unreleased branch testing, build `topa` from the selected source ref:
+
+```bash
+~/.tarae/bin/tarae upgrade --ref main --build-from-source --project-root "$PWD"
+```
+
 ## What It Does
 
 - Provides MCP lifecycle tools for AI agents: `start_session`, `checkpoint`, `report_issue`, `end_session`.
@@ -85,6 +115,8 @@ On the next session, the agent can call `fetch_past_context` or `search_history`
 └── topa/
     ├── active_session.json
     ├── latest.md
+    ├── runtime/
+    │   └── server.json
     ├── session_index.jsonl
     └── sessions/
         ├── <session-id>.jsonl
@@ -131,6 +163,7 @@ tarae link codex --project-root "$PWD"
 tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 tarae link codex --project-root "$PWD" --fixed-project-root
 tarae verify --agent codex --project-root "$PWD"
+tarae upgrade --ref v0.1.5 --project-root "$PWD"
 tarae doctor --project-root "$PWD"
 tarae status --project-root "$PWD"
 tarae unlink codex
@@ -140,9 +173,9 @@ tarae uninstall --all
 
 ## Stopping Topa
 
-`topa` is launched by the MCP client as a stdio child process. It exits when the client closes the MCP connection, usually when you close or restart the AI app. To stop recording a session, call `end_session`. To prevent future launches, run `tarae unlink <agent>` and restart the AI app.
+`topa serve` stays compatible with MCP stdio clients, but it now acts as a lightweight bridge. The first tool call starts or reuses one project-scoped `topa daemon`, and that daemon owns file watching, session state, and history writes for the project.
 
-`topa` does not daemonize or fork itself. If you see multiple `topa serve` processes, they are usually separate MCP child processes held by active agent sessions, windows, or extension hosts. Run `tarae status --project-root "$PWD"` to list detected local `topa` processes.
+To stop recording a session, call `end_session`. To stop the local project daemon, run `topa shutdown --project-root "$PWD"` or unlink Tarae and restart the AI app. `tarae status --project-root "$PWD"` separates the single state daemon from temporary stdio bridge processes.
 
 ## Verify
 

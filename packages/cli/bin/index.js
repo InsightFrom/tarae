@@ -11,6 +11,7 @@ import { doctorAction } from '../lib/doctor.js';
 import { unlinkAction } from '../lib/unlink.js';
 import { uninstallAction } from '../lib/uninstall.js';
 import { verifyAction } from '../lib/verify.js';
+import { upgradeAction } from '../lib/upgrade.js';
 
 const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -78,6 +79,29 @@ program
   .action(async (options, cmd) => {
     try {
       await verifyAction(cmd.opts());
+    } catch (err) {
+      console.error(chalk.red(`Error: ${err.message}`));
+      process.exit(1);
+    }
+  });
+
+program
+  .command('upgrade')
+  .description('Upgrade the local Tarae CLI shim and topa binary')
+  .option('--ref <ref>', 'Git branch or tag to install, for example main or v0.1.5')
+  .option('--repo-url <url>', 'Tarae git repository URL')
+  .option('--install-dir <path>', 'Tarae source install directory')
+  .option('--bin-dir <path>', 'Directory for tarae/topa shims and binaries')
+  .option('--build-from-source', 'Build topa from the selected source ref instead of downloading a release asset')
+  .option('--project-root <path>', 'Project root whose daemon should be stopped and verified')
+  .option('--agent <agent>', 'Agent config to verify after upgrade')
+  .option('--config-path <path>', 'MCP config file path for custom or overridden agent config')
+  .option('--config-format <format>', 'MCP config format for --config-path (json or toml)')
+  .option('--skip-verify', 'Skip verification after upgrade')
+  .option('--no-mcp-smoke', 'Skip spawning topa during post-upgrade verification')
+  .action(async (options, cmd) => {
+    try {
+      await upgradeAction(cmd.opts());
     } catch (err) {
       console.error(chalk.red(`Error: ${err.message}`));
       process.exit(1);

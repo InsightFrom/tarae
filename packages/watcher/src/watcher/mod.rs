@@ -8,18 +8,18 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
-use crate::mcp::schema::{Actor, ActorType, EventPayload, EventType};
-use crate::mcp::tools::TaraeServer;
+use crate::mcp::schema::{Actor, ActorType, EventPayload, EventType, FileChange, GitRef};
+use crate::mcp::tools::TaraeCore;
 use crate::watcher::auto_checkpoint::AutoCheckpoint;
 use crate::watcher::state_machine::StateMachine;
 
-pub fn start_background_watcher_for_root(server: TaraeServer, project_root: std::path::PathBuf) {
+pub fn start_background_watcher_for_root(server: TaraeCore, project_root: std::path::PathBuf) {
     tokio::spawn(async move {
         start_background_watcher_loop(server, project_root).await;
     });
 }
 
-async fn start_background_watcher_loop(server: TaraeServer, project_root: std::path::PathBuf) {
+async fn start_background_watcher_loop(server: TaraeCore, project_root: std::path::PathBuf) {
     info!(path = %project_root.display(), "Initializing background file watcher");
 
     // 2. Start file watching
@@ -36,6 +36,7 @@ async fn start_background_watcher_loop(server: TaraeServer, project_root: std::p
     let auto_checkpoint = AutoCheckpoint::new(server.config.auto_checkpoint_threshold);
     let mut pending_human_changes = Vec::new();
     let mut debounce_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
+    let mut last_recorded_change_signature: Option<String> = None;
 
     // Rate limiter state
     let mut event_count = 0;
@@ -96,21 +97,35 @@ async fn start_background_watcher_loop(server: TaraeServer, project_root: std::p
                                         &project_root,
                                         taken,
                                     );
-                                let git_ref =
-                                    crate::git::diff::get_current_git_ref_for_root(&project_root)
-                                        .ok();
-                                let payload = EventPayload {
-                                    summary: Some(auto_checkpoint_summary(
-                                        &server.config.summary_language,
-                                    )),
-                                    file_changes: Some(taken),
-                                    git_ref,
-                                    ..Default::default()
-                                };
+                                if taken.is_empty() {
+                                    debug!(
+                                        "Skipping auto-checkpoint because no git diff remains after enrichment"
+                                    );
+                                } else {
+                                    let git_ref =
+                                        crate::git::diff::get_current_git_ref_for_root(&project_root)
+                                            .ok();
+                                    let signature = watcher_change_signature(git_ref.as_ref(), &taken);
+                                    if last_recorded_change_signature.as_deref()
+                                        == Some(signature.as_str())
+                                    {
+                                        debug!(
+                                            "Skipping auto-checkpoint because the visible file-change summary is unchanged"
+                                        );
+                                        continue;
+                                    }
+                                    let payload = EventPayload {
+                                        summary: None,
+                                        file_changes: Some(taken),
+                                        git_ref,
+                                        ..Default::default()
+                                    };
 
-                                let event = server.create_event_for_root(&project_root, EventType::AutoCheckpoint, payload).await;
-                                let msg = server.record_event_for_root(&project_root, &event).await;
-                                debug!("AutoCheckpoint record result: {}", msg);
+                                    let event = server.create_event_for_root(&project_root, EventType::AutoCheckpoint, payload).await;
+                                    let msg = server.record_event_for_root(&project_root, &event).await;
+                                    last_recorded_change_signature = Some(signature);
+                                    debug!("AutoCheckpoint record result: {}", msg);
+                                }
                             }
                         } else {
                             debug!("Human activity pattern detected, queuing for debounce");
@@ -137,26 +152,40 @@ async fn start_background_watcher_loop(server: TaraeServer, project_root: std::p
                         &project_root,
                         taken,
                     );
-                    let git_ref =
-                        crate::git::diff::get_current_git_ref_for_root(&project_root).ok();
-                    let payload = EventPayload {
-                        summary: Some(human_intervention_summary(
-                            &server.config.summary_language,
-                            state_machine.is_ai_active(),
-                        )),
-                        file_changes: Some(taken),
-                        git_ref,
-                        ..Default::default()
-                    };
+                    if taken.is_empty() {
+                        debug!(
+                            "Skipping human-intervention event because no git diff remains after enrichment"
+                        );
+                    } else {
+                        let git_ref =
+                            crate::git::diff::get_current_git_ref_for_root(&project_root).ok();
+                        let signature = watcher_change_signature(git_ref.as_ref(), &taken);
+                        if last_recorded_change_signature.as_deref() == Some(signature.as_str()) {
+                            debug!(
+                                "Skipping human-intervention event because the visible file-change summary is unchanged"
+                            );
+                            continue;
+                        }
+                        let payload = EventPayload {
+                            summary: Some(human_intervention_summary(
+                                &server.config.summary_language,
+                                state_machine.is_ai_active(),
+                            )),
+                            file_changes: Some(taken),
+                            git_ref,
+                            ..Default::default()
+                        };
 
-                    let mut event = server.create_event_for_root(&project_root, EventType::HumanIntervention, payload).await;
-                    event.actor = Actor {
-                        actor_type: ActorType::Human,
-                        agent_name: None,
-                    };
+                        let mut event = server.create_event_for_root(&project_root, EventType::HumanIntervention, payload).await;
+                        event.actor = Actor {
+                            actor_type: ActorType::Human,
+                            agent_name: None,
+                        };
 
-                    let msg = server.record_event_for_root(&project_root, &event).await;
-                    debug!("HumanIntervention record result: {}", msg);
+                        let msg = server.record_event_for_root(&project_root, &event).await;
+                        last_recorded_change_signature = Some(signature);
+                        debug!("HumanIntervention record result: {}", msg);
+                    }
                 }
             }
         }
@@ -167,12 +196,19 @@ fn wants_korean(language: &str) -> bool {
     language.to_ascii_lowercase().starts_with("ko")
 }
 
-fn auto_checkpoint_summary(language: &str) -> String {
-    if wants_korean(language) {
-        "Tarae watcher 자동 체크포인트".to_string()
-    } else {
-        "Auto-checkpoint by Tarae watcher".to_string()
+fn watcher_change_signature(git_ref: Option<&GitRef>, changes: &[FileChange]) -> String {
+    let mut signature = String::new();
+    if let Some(git_ref) = git_ref {
+        signature.push_str(&git_ref.commit_hash);
     }
+    signature.push('\n');
+    for change in changes {
+        signature.push_str(&format!(
+            "{}\t{:?}\t{}\t{}\n",
+            change.path, change.action, change.lines_added, change.lines_removed
+        ));
+    }
+    signature
 }
 
 fn human_intervention_summary(language: &str, heuristic_ai: bool) -> String {
@@ -182,5 +218,52 @@ fn human_intervention_summary(language: &str, heuristic_ai: bool) -> String {
         format!(
             "Human coding activity detected (session_active=false, heuristic_ai={heuristic_ai})"
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mcp::schema::{FileAction, GitRef};
+
+    #[test]
+    fn watcher_change_signature_matches_visible_file_summary() {
+        let git_ref = GitRef {
+            branch: "main".to_string(),
+            commit_hash: "abc123".to_string(),
+            commit_message: None,
+        };
+        let changes = vec![FileChange {
+            path: "src/main.rs".to_string(),
+            action: FileAction::Modified,
+            lines_added: 2,
+            lines_removed: 1,
+        }];
+
+        assert_eq!(
+            watcher_change_signature(Some(&git_ref), &changes),
+            "abc123\nsrc/main.rs\tModified\t2\t1\n"
+        );
+    }
+
+    #[test]
+    fn watcher_change_signature_changes_with_line_counts() {
+        let first = vec![FileChange {
+            path: "src/main.rs".to_string(),
+            action: FileAction::Modified,
+            lines_added: 2,
+            lines_removed: 1,
+        }];
+        let second = vec![FileChange {
+            path: "src/main.rs".to_string(),
+            action: FileAction::Modified,
+            lines_added: 3,
+            lines_removed: 1,
+        }];
+
+        assert_ne!(
+            watcher_change_signature(None, &first),
+            watcher_change_signature(None, &second)
+        );
     }
 }

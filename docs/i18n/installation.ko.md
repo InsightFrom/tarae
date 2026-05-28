@@ -49,6 +49,38 @@ Windows PowerShell:
 $env:Path = "$HOME\.tarae\bin;$env:Path"
 ```
 
+## 업그레이드
+
+기존 설치를 갱신할 때는 오래된 npm/global `tarae`가 먼저 잡히지 않도록 `~/.tarae/bin/tarae` shim을 우선 사용합니다:
+
+```bash
+command -v tarae
+tarae --version
+~/.tarae/bin/tarae --version
+~/.tarae/bin/topa --version
+~/.tarae/bin/tarae verify --project-root "$PWD" --no-mcp-smoke
+```
+
+릴리스 버전으로 업그레이드:
+
+```bash
+~/.tarae/bin/tarae upgrade --ref v0.1.5 --project-root "$PWD"
+```
+
+`upgrade` 명령이 없던 예전 설치본은 설치 스크립트를 다시 실행합니다:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.5 bash
+```
+
+아직 릴리스되지 않은 branch를 검증할 때는 최신 릴리스 asset을 받지 말고 source에서 `topa`를 빌드합니다:
+
+```bash
+~/.tarae/bin/tarae upgrade --ref main --build-from-source --project-root "$PWD"
+```
+
+업그레이드 후에는 기존 MCP stdio bridge 프로세스가 교체되도록 AI 앱을 재시작합니다.
+
 지원 에이전트:
 
 ```text
@@ -70,9 +102,15 @@ tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root 
 
 ## Topa 종료
 
-`topa`는 데몬이 아니라 MCP 클라이언트가 실행하는 stdio 자식 프로세스입니다. AI 앱을 닫거나 재시작하면 MCP 연결이 닫히면서 종료됩니다.
+`topa serve`는 MCP stdio 호환을 위한 가벼운 브리지입니다. 첫 lifecycle 도구 호출 때 프로젝트별 `topa daemon`을 시작하거나 재사용하며, 이 데몬 하나가 파일 감시, 활성 세션 상태, 히스토리 쓰기를 담당합니다.
 
-기록 세션은 `end_session`으로 끝냅니다. 이후 실행을 막으려면 Tarae를 unlink하고 AI 앱을 재시작합니다:
+기록 세션은 `end_session`으로 끝냅니다. 프로젝트 데몬은 다음 명령으로 종료할 수 있습니다:
+
+```bash
+topa shutdown --project-root "$PWD"
+```
+
+이후 실행을 막으려면 Tarae를 unlink하고 AI 앱을 재시작합니다:
 
 ```bash
 tarae unlink codex
@@ -90,6 +128,7 @@ tarae doctor --project-root "$PWD"
 ```text
 .tarae/topa/session_index.jsonl
 .tarae/topa/latest.md
+.tarae/topa/runtime/server.json
 .tarae/topa/sessions/<session-id>.jsonl
 .tarae/topa/sessions/<session-id>.md
 ```

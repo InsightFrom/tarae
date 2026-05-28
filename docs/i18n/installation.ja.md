@@ -70,7 +70,7 @@ tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root 
 
 ## Topa の停止
 
-`topa` はデーモンではなく、MCP クライアントが起動する stdio 子プロセスです。AI アプリを閉じるか再起動すると MCP 接続が閉じ、`topa` も終了します。
+`topa serve` は MCP stdio 互換の軽量ブリッジです。最初の lifecycle ツール呼び出しでプロジェクト単位の `topa daemon` を起動または再利用し、このデーモン 1 つがファイル監視、アクティブセッション状態、履歴書き込みを担当します。プロジェクトデーモンは `topa shutdown --project-root "$PWD"` で停止できます。
 
 記録セッションは `end_session` で終了します。今後の起動を止めるには Tarae を unlink して AI アプリを再起動します:
 
@@ -90,6 +90,7 @@ tarae doctor --project-root "$PWD"
 ```text
 .tarae/topa/session_index.jsonl
 .tarae/topa/latest.md
+.tarae/topa/runtime/server.json
 .tarae/topa/sessions/<session-id>.jsonl
 .tarae/topa/sessions/<session-id>.md
 ```

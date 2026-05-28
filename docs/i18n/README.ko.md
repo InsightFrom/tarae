@@ -56,7 +56,7 @@ gemini
 
 ## Topa 종료
 
-`topa`는 데몬이 아니라 MCP 클라이언트가 실행하는 stdio 자식 프로세스입니다. AI 앱을 닫거나 재시작하면 MCP 연결이 닫히면서 종료됩니다. 기록 세션은 `end_session`으로 끝내고, 이후 실행을 막으려면 `tarae unlink <agent>` 후 AI 앱을 재시작하세요.
+`topa serve`는 MCP stdio 호환을 위한 가벼운 브리지입니다. 첫 lifecycle 도구 호출 때 프로젝트별 `topa daemon`을 시작하거나 재사용하며, 이 데몬 하나가 파일 감시, 활성 세션 상태, 히스토리 쓰기를 담당합니다. 기록 세션은 `end_session`으로 끝내고, 프로젝트 데몬은 `topa shutdown --project-root "$PWD"`로 종료할 수 있습니다. 이후 실행을 막으려면 `tarae unlink <agent>` 후 AI 앱을 재시작하세요.
 
 ## 주요 기능
 
@@ -87,6 +87,8 @@ gemini
 └── topa/
     ├── active_session.json
     ├── latest.md
+    ├── runtime/
+    │   └── server.json
     ├── session_index.jsonl
     └── sessions/
         ├── <session-id>.jsonl

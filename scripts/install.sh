@@ -51,3 +51,6 @@ echo "  export PATH=\"$BIN_DIR:\$PATH\""
 echo
 echo "Next:"
 echo "  $BIN_DIR/tarae install --agent codex --project-root \"\$PWD\""
+echo
+echo "Upgrade later:"
+echo "  $BIN_DIR/tarae upgrade --ref v0.1.5 --project-root \"\$PWD\""

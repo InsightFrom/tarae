@@ -68,6 +68,38 @@ Windows PowerShell:
 $env:Path = "$HOME\.tarae\bin;$env:Path"
 ```
 
+## Upgrade
+
+When upgrading an existing install, prefer the `~/.tarae/bin/tarae` shim so an older global npm install does not take precedence:
+
+```bash
+command -v tarae
+tarae --version
+~/.tarae/bin/tarae --version
+~/.tarae/bin/topa --version
+~/.tarae/bin/tarae verify --project-root "$PWD" --no-mcp-smoke
+```
+
+Upgrade to a released version:
+
+```bash
+~/.tarae/bin/tarae upgrade --ref v0.1.5 --project-root "$PWD"
+```
+
+Or rerun the installer for users who installed before the `upgrade` command existed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.5 bash
+```
+
+For unreleased branch testing, build `topa` from source instead of downloading the latest release asset:
+
+```bash
+~/.tarae/bin/tarae upgrade --ref main --build-from-source --project-root "$PWD"
+```
+
+Restart the target AI app after upgrading so old MCP stdio bridge processes are replaced.
+
 ## Link A Different Agent
 
 ```bash
@@ -106,6 +138,7 @@ Expected local files after a session:
 ```text
 .tarae/topa/session_index.jsonl
 .tarae/topa/latest.md
+.tarae/topa/runtime/server.json
 .tarae/topa/sessions/<session-id>.jsonl
 .tarae/topa/sessions/<session-id>.md
 ```
@@ -158,9 +191,15 @@ tarae link codex --project-root "$PWD" --fixed-project-root
 
 ## Stop Topa
 
-`topa` is not a daemon. It is launched by the MCP client as a stdio child process and exits when the client closes the MCP connection, usually when you close or restart the AI app.
+`topa serve` remains the MCP stdio entrypoint, but it is now a lightweight bridge. The first lifecycle tool call starts or reuses one project-scoped `topa daemon`, which owns file watching, active session state, and history writes.
 
-To stop recording a session, call `end_session`. To prevent future launches, unlink Tarae and restart the AI app:
+To stop recording a session, call `end_session`. To stop the project daemon, run:
+
+```bash
+topa shutdown --project-root "$PWD"
+```
+
+To prevent future launches, unlink Tarae and restart the AI app:
 
 ```bash
 tarae unlink codex

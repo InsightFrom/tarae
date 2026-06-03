@@ -54,6 +54,8 @@ gemini
 ~/.tarae/bin/tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 ```
 
+각 MCP 연결에는 `TARAE_AGENT_NAME`과 `TARAE_LINK_ID`가 기록됩니다. 여러 AI 에이전트가 같은 프로젝트에서 동시에 작업해도 link id별 active session을 따로 추적할 수 있으며, 오케스트레이션 도구는 `--link-id <id>`로 고정 식별자를 지정할 수 있습니다.
+
 ## Topa 종료
 
 `topa serve`는 MCP stdio 호환을 위한 가벼운 브리지입니다. 첫 lifecycle 도구 호출 때 프로젝트별 `topa daemon`을 시작하거나 재사용하며, 이 데몬 하나가 파일 감시, 활성 세션 상태, 히스토리 쓰기를 담당합니다. 기록 세션은 `end_session`으로 끝내고, 프로젝트 데몬은 `topa shutdown --project-root "$PWD"`로 종료할 수 있습니다. 이후 실행을 막으려면 `tarae unlink <agent>` 후 AI 앱을 재시작하세요.
@@ -65,6 +67,7 @@ gemini
 - 같은 세션을 사람이 읽기 쉬운 Markdown으로 렌더링
 - `fetch_past_context`, `list_sessions`, `read_session`, `search_history` 로컬 히스토리 도구 제공
 - 파일 변경을 metadata로 기록해 자동 체크포인트와 사용자 개입 이벤트 생성
+- MCP `link_id` 기준으로 Codex, Claude, Gemini 같은 병렬 AI 에이전트의 active session을 분리 추적
 
 ## 에이전트 사용 방식
 
@@ -86,6 +89,7 @@ gemini
 .tarae/
 └── topa/
     ├── active_session.json
+    ├── active_sessions.json
     ├── latest.md
     ├── runtime/
     │   └── server.json
@@ -95,7 +99,7 @@ gemini
         └── <session-id>.md
 ```
 
-JSONL은 `topa-event-v1` 원본 이벤트 로그입니다. Markdown은 YAML frontmatter와 timeline을 포함한 읽기용 projection입니다.
+JSONL은 `topa-event-v1` 원본 이벤트 로그입니다. Markdown은 YAML frontmatter와 timeline을 포함한 읽기용 projection입니다. 이벤트에는 agent/link 식별자와 watcher attribution 상태가 포함될 수 있습니다.
 
 ## 더 보기
 

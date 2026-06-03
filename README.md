@@ -37,6 +37,7 @@ Windows PowerShell:
 Restart the target AI app after linking so it reloads MCP settings.
 The CLI prints an `MCP files touched` summary showing which config file was read, backed up, or written.
 By default, the MCP config is project-root agnostic. Tarae resolves the project at tool-call time from MCP `roots/list`, or from the `project_root` argument passed to lifecycle tools. Use `--fixed-project-root` only for clients that cannot provide either.
+Linked MCP configs include `TARAE_AGENT_NAME` and `TARAE_LINK_ID` so orchestrated agents can keep separate active sessions in one project. Use `--link-id <id>` when you need a stable role identity, for example `codex-backend` or `gemini-qa`.
 
 Supported agents:
 
@@ -51,6 +52,7 @@ For an unsupported MCP-capable agent, provide its config path:
 
 ```bash
 ~/.tarae/bin/tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+~/.tarae/bin/tarae link codex --project-root "$PWD" --link-id codex-backend
 ~/.tarae/bin/tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 ```
 
@@ -91,6 +93,7 @@ For unreleased branch testing, build `topa` from the selected source ref:
 - Renders the same session into Markdown for humans and AI agents to read.
 - Provides local history tools: `fetch_past_context`, `list_sessions`, `read_session`, `search_history`.
 - Watches project file changes and records auto-checkpoints or human intervention events as metadata.
+- Tracks concurrent AI agents by MCP `link_id`, so Codex, Claude, Gemini, and custom orchestrated workers can keep separate active sessions in one project.
 
 ## How Agents Use It
 
@@ -114,6 +117,7 @@ On the next session, the agent can call `fetch_past_context` or `search_history`
 .tarae/
 └── topa/
     ├── active_session.json
+    ├── active_sessions.json
     ├── latest.md
     ├── runtime/
     │   └── server.json
@@ -123,7 +127,7 @@ On the next session, the agent can call `fetch_past_context` or `search_history`
         └── <session-id>.md
 ```
 
-The JSONL file is the canonical event log using `topa-event-v1`. The Markdown file is a readable projection with YAML frontmatter and a timeline. Tarae records summaries, git refs, file paths/actions/line counts, and short masked error logs.
+The JSONL file is the canonical event log using `topa-event-v1`. The Markdown file is a readable projection with YAML frontmatter and a timeline. Tarae records summaries, git refs, file paths/actions/line counts, agent/link identity, watcher attribution, and short masked error logs.
 
 ## Documentation
 
@@ -173,7 +177,7 @@ tarae uninstall --all
 
 ## Stopping Topa
 
-`topa serve` stays compatible with MCP stdio clients, but it now acts as a lightweight bridge. The first tool call starts or reuses one project-scoped `topa daemon`, and that daemon owns file watching, session state, and history writes for the project.
+`topa serve` stays compatible with MCP stdio clients, but it now acts as a lightweight bridge. The first tool call starts or reuses one project-scoped `topa daemon`, and that daemon owns file watching, link-scoped active sessions, and history writes for the project.
 
 To stop recording a session, call `end_session`. To stop the local project daemon, run `topa shutdown --project-root "$PWD"` or unlink Tarae and restart the AI app. `tarae status --project-root "$PWD"` separates the single state daemon from temporary stdio bridge processes.
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5
+
+- Add `link:` / `link_id:` search filters for multi-agent Tarae history.
+- Show MCP link identity in session tooltips and searchable session metadata.
+
 ## 0.1.2
 
 - Use archived `topa` release assets for installer downloads.

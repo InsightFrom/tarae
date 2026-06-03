@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
+import crypto from 'crypto';
 import chalk from 'chalk';
 import readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
@@ -105,13 +106,38 @@ function mcpServerArgs({ projectRoot, fixedProjectRoot }) {
   return fixedProjectRoot ? ['serve', '--project-root', projectRoot] : ['serve'];
 }
 
-function mcpServerEnv({ projectRoot, fixedProjectRoot }) {
-  return fixedProjectRoot ? { TARAE_PROJECT_ROOT: projectRoot } : null;
+function sanitizeLinkPart(value) {
+  return String(value || 'agent')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    || 'agent';
 }
 
-function linkCodexConfig({ agent, configPath, topaPath, projectRoot, fixedProjectRoot, report }) {
+function defaultLinkId(agent, configPath) {
+  const hash = crypto
+    .createHash('sha256')
+    .update(`${agent}:${path.resolve(configPath)}`)
+    .digest('hex')
+    .slice(0, 12);
+  return `${sanitizeLinkPart(agent)}-${hash}`;
+}
+
+function mcpServerEnv({ agent, linkId, projectRoot, fixedProjectRoot }) {
+  const env = {
+    TARAE_AGENT_NAME: agent,
+    TARAE_LINK_ID: linkId,
+  };
+  if (fixedProjectRoot) {
+    env.TARAE_PROJECT_ROOT = projectRoot;
+  }
+  return env;
+}
+
+function linkCodexConfig({ agent, linkId, configPath, topaPath, projectRoot, fixedProjectRoot, report }) {
   console.log(chalk.cyan(`Linking Tarae MCP server to ${agent}...`));
   console.log(chalk.gray(`Config path: ${configPath}`));
+  console.log(chalk.gray(`Link id: ${linkId}`));
   if (!fixedProjectRoot) {
     console.log(chalk.gray('Project root mode: resolved at MCP call time'));
   }
@@ -138,8 +164,10 @@ function linkCodexConfig({ agent, configPath, topaPath, projectRoot, fixedProjec
     `args = ${tomlArray(mcpServerArgs({ projectRoot, fixedProjectRoot }))}`,
   ];
 
-  if (fixedProjectRoot) {
-    taraeConfig.push('', '[mcp_servers.tarae.env]', `TARAE_PROJECT_ROOT = ${tomlString(projectRoot)}`);
+  const env = mcpServerEnv({ agent, linkId, projectRoot, fixedProjectRoot });
+  taraeConfig.push('', '[mcp_servers.tarae.env]');
+  for (const [key, value] of Object.entries(env)) {
+    taraeConfig.push(`${key} = ${tomlString(value)}`);
   }
 
   const nextConfig = `${preserved ? `${preserved}\n\n` : ''}${taraeConfig.join('\n')}\n`;
@@ -148,9 +176,10 @@ function linkCodexConfig({ agent, configPath, topaPath, projectRoot, fixedProjec
   console.log(chalk.green(`Successfully linked Tarae MCP server to ${agent}!`));
 }
 
-function linkJsonConfig({ agent, configPath, topaPath, projectRoot, fixedProjectRoot, report }) {
+function linkJsonConfig({ agent, linkId, configPath, topaPath, projectRoot, fixedProjectRoot, report }) {
   console.log(chalk.cyan(`Linking Tarae MCP server to ${agent}...`));
   console.log(chalk.gray(`Config path: ${configPath}`));
+  console.log(chalk.gray(`Link id: ${linkId}`));
   if (!fixedProjectRoot) {
     console.log(chalk.gray('Project root mode: resolved at MCP call time'));
   }
@@ -177,12 +206,9 @@ function linkJsonConfig({ agent, configPath, topaPath, projectRoot, fixedProject
   config.mcpServers.tarae = {
     command: topaPath,
     args: mcpServerArgs({ projectRoot, fixedProjectRoot }),
+    env: mcpServerEnv({ agent, linkId, projectRoot, fixedProjectRoot }),
     disabled: false
   };
-  const env = mcpServerEnv({ projectRoot, fixedProjectRoot });
-  if (env) {
-    config.mcpServers.tarae.env = env;
-  }
 
   fs.writeJsonSync(configPath, config, { spaces: 2 });
   report.record('wrote config', configPath);
@@ -237,9 +263,11 @@ export async function linkAction(agent, options = {}) {
   }
 
   const configFormat = inferAgentConfigFormat(targetAgent, configPath, options.configFormat);
+  const linkId = options.linkId || defaultLinkId(targetAgent, configPath);
   if (configFormat === 'codex-toml') {
     linkCodexConfig({
       agent: targetAgent,
+      linkId,
       configPath,
       topaPath,
       projectRoot,
@@ -249,6 +277,7 @@ export async function linkAction(agent, options = {}) {
   } else {
     linkJsonConfig({
       agent: targetAgent,
+      linkId,
       configPath,
       topaPath,
       projectRoot,
@@ -260,6 +289,7 @@ export async function linkAction(agent, options = {}) {
   report.print();
   return {
     agent: targetAgent,
+    linkId,
     configPath,
     configFormat,
   };

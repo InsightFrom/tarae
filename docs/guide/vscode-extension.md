@@ -68,7 +68,7 @@ On macOS without the `code` command:
 
 ## Search Syntax
 
-`Tarae: Search History` searches session JSONL events, not only rendered Markdown. Plain words must all match somewhere in the event, session metadata, file paths, git metadata, summaries, errors, or log tails.
+`Tarae: Search History` searches session JSONL events, not only rendered Markdown. Plain words must all match somewhere in the event, session metadata, file paths, git metadata, agent/link identity, summaries, errors, or log tails.
 
 Supported filters:
 
@@ -76,6 +76,7 @@ Supported filters:
 type:checkpoint
 file:packages/watcher
 agent:codex
+link:codex-main
 tag:#release
 session:<session-id>
 status:completed

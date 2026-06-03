@@ -11,6 +11,7 @@ Tarae is a non-invasive local observer for AI coding sessions. The `topa` MCP se
 ```text
 .tarae/topa/session_index.jsonl
 .tarae/topa/latest.md
+.tarae/topa/active_sessions.json
 .tarae/topa/sessions/<session-id>.jsonl
 .tarae/topa/sessions/<session-id>.md
 ```
@@ -27,7 +28,7 @@ Tarae is a non-invasive local observer for AI coding sessions. The `topa` MCP se
 
 - `list_sessions(project_root, limit, status)`: show recent local sessions.
 - `read_session(project_root, session_id, format)`: read Markdown or JSONL for a session.
-- `search_history(project_root, query, file_path, event_type, limit)`: search local objective, summaries, errors, logs, and file paths.
+- `search_history(project_root, query, file_path, event_type, agent_name, link_id, session_id, status, tag, after, before, limit)`: search local objective, summaries, errors, logs, file paths, agent/link identity, tags, status, and time ranges.
 - `fetch_past_context(project_root, session_id)`: read one session or recent local context.
 
 ## Privacy

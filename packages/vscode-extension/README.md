@@ -27,7 +27,7 @@ Install Tarae in a workspace and record at least one session so the project cont
 `Tarae: Search History` reads JSONL events and supports plain text plus filters:
 
 ```text
-type:checkpoint file:src agent:codex tag:#release after:2026-05-01 before:2026-05-28
+type:checkpoint file:src agent:codex link:codex-main tag:#release after:2026-05-01 before:2026-05-28
 ```
 
 ## Repository

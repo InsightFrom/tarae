@@ -173,7 +173,14 @@ function verifyJsonAgent(agent, configPath, projectRoot) {
   }
 
   const rootMode = linkedRoot ? `fixed to ${linkedRoot}` : 'project root resolved at MCP call time';
-  return { ok: true, detail: `${agent} config linked at ${configPath} (${rootMode})` };
+  const identity = [
+    tarae.env?.TARAE_AGENT_NAME ? `agent=${tarae.env.TARAE_AGENT_NAME}` : '',
+    tarae.env?.TARAE_LINK_ID ? `link=${tarae.env.TARAE_LINK_ID}` : '',
+  ].filter(Boolean).join(', ');
+  return {
+    ok: true,
+    detail: `${agent} config linked at ${configPath} (${rootMode}${identity ? `, ${identity}` : ''})`,
+  };
 }
 
 function verifyTomlAgent(agent, configPath, projectRoot) {
@@ -192,7 +199,16 @@ function verifyTomlAgent(agent, configPath, projectRoot) {
   }
 
   const rootMode = hasFixedRoot ? 'fixed project root' : 'project root resolved at MCP call time';
-  return { ok: true, detail: `${agent} config linked at ${configPath} (${rootMode})` };
+  const agentName = content.match(/TARAE_AGENT_NAME\s*=\s*"([^"]+)"/)?.[1];
+  const linkId = content.match(/TARAE_LINK_ID\s*=\s*"([^"]+)"/)?.[1];
+  const identity = [
+    agentName ? `agent=${agentName}` : '',
+    linkId ? `link=${linkId}` : '',
+  ].filter(Boolean).join(', ');
+  return {
+    ok: true,
+    detail: `${agent} config linked at ${configPath} (${rootMode}${identity ? `, ${identity}` : ''})`,
+  };
 }
 
 function verifyAgent(agent, projectRoot, options = {}) {

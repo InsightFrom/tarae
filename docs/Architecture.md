@@ -16,7 +16,7 @@ flowchart TB
     Daemon --> History[".tarae/topa"]
 
     subgraph HistoryFiles["Local History Files"]
-        Active["active_session.json"]
+        Active["active_session.json / active_sessions.json"]
         Jsonl["sessions/<session-id>.jsonl"]
         Md["sessions/<session-id>.md"]
         Index["session_index.jsonl"]
@@ -45,7 +45,7 @@ flowchart TB
 2. The CLI writes the target agent MCP configuration so it can launch `topa serve`.
 3. The AI agent calls Tarae lifecycle tools while it works. Tarae resolves the project root from MCP `roots/list`, from a tool `project_root` argument, or from explicit fixed-root configuration.
 4. `topa serve` starts or reuses one project-scoped `topa daemon` through `.tarae/topa/runtime/server.json`.
-5. The daemon appends canonical JSONL events under `.tarae/topa/sessions/`.
+5. The daemon keeps active sessions by project plus MCP link identity, then appends canonical JSONL events under `.tarae/topa/sessions/`.
 6. The daemon regenerates a Markdown projection for the same session and updates `latest.md`.
 7. Search tools and the VS Code extension scan `session_index.jsonl` and session JSONL files when an agent asks for prior context.
 
@@ -55,6 +55,7 @@ flowchart TB
 .tarae/
 └── topa/
     ├── active_session.json
+    ├── active_sessions.json
     ├── latest.md
     ├── runtime/
     │   └── server.json
@@ -68,7 +69,7 @@ flowchart TB
 - `sessions/<session-id>.md` is a readable projection with YAML frontmatter and a timeline.
 - `latest.md` points people and agents to the most recent rendered session.
 - `session_index.jsonl` is a compact search and listing index.
-- `active_session.json` tracks the currently open lifecycle session.
+- `active_sessions.json` tracks concurrently open lifecycle sessions by MCP link id. `active_session.json` is kept only for single-session compatibility.
 - `runtime/server.json` tracks the local project daemon endpoint, pid, version, heartbeat, and loopback RPC token metadata.
 
 ## Event Model
@@ -82,11 +83,12 @@ flowchart TB
   "event_type": "checkpoint",
   "timestamp": "2026-05-27T00:00:00Z",
   "session_id": "uuid-v4",
-  "actor": { "type": "ai_agent", "agent_name": "codex" },
+  "actor": { "type": "ai_agent", "agent_name": "codex", "link_id": "codex-main" },
   "payload": {
     "summary": "Implemented local history",
     "git_ref": { "branch": "oss", "commit_hash": "abc123" },
-    "file_changes": [{ "path": "src/main.rs", "action": "modified", "lines_added": 12 }]
+    "file_changes": [{ "path": "src/main.rs", "action": "modified", "lines_added": 12 }],
+    "attribution": { "status": "explicit", "active_session_count": 1 }
   }
 }
 ```
@@ -97,7 +99,7 @@ The JSONL file is append-only. Markdown is regenerated after each event from the
 
 Markdown session files are optimized for quick reading. They include:
 
-- YAML frontmatter: `session_id`, `objective`, `agent_name`, `status`, timestamps, tags, and project root.
+- YAML frontmatter: `session_id`, `objective`, `agent_name`, `link_id`, `status`, timestamps, tags, and project root.
 - Timeline entries for lifecycle events.
 - Checkpoint and issue summaries.
 - Git branch and commit metadata when available.
@@ -122,7 +124,7 @@ History:
 - `read_session`
 - `search_history`
 
-Search scans `session_index.jsonl` and session JSONL files for objective, summary, error text, log tail, file path, and event type matches. UI clients should treat `sessions/<session-id>.jsonl` as the source of truth and can expose event-level filters such as event type, file path, actor/agent, tag, session id, status, and date range.
+Search scans `session_index.jsonl` and session JSONL files for objective, summary, error text, log tail, file path, event type, agent name, link id, tags, status, and timestamps. MCP `search_history` exposes those filters directly so agents can retrieve prior work by file, tool, MCP link, session, status, keyword, or date range.
 
 ## Process Lifecycle
 
@@ -132,7 +134,7 @@ An MCP client starts `topa serve` as a stdio child process from the configured c
 topa serve
 ```
 
-`topa serve` is a bridge process. It exits when the MCP stdio connection closes, typically after the AI app or extension host is restarted or closed. The first tool call starts or reuses `topa daemon --project-root <root>`, and that daemon is the only watcher, history writer, and active session owner for the project.
+`topa serve` is a bridge process. It exits when the MCP stdio connection closes, typically after the AI app or extension host is restarted or closed. The first tool call starts or reuses `topa daemon --project-root <root>`, and that daemon is the only watcher and history writer for the project. It can track multiple active lifecycle sessions concurrently by MCP link identity.
 
 The daemon listens only on loopback with a per-daemon token stored in project-local runtime metadata. Startup is guarded by `.tarae/topa/runtime/server.lock`; stale metadata is ignored when health checks fail, versions differ, or the endpoint no longer responds. Use `topa shutdown --project-root <root>` to stop a project daemon.
 

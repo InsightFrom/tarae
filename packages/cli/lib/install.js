@@ -23,6 +23,7 @@ export async function installAction(options = {}) {
     projectRoot,
     configPath: options.configPath,
     configFormat: options.configFormat,
+    linkId: options.linkId,
     fixedProjectRoot: options.fixedProjectRoot,
   });
   mergeGlobalConfig({
@@ -31,6 +32,7 @@ export async function installAction(options = {}) {
     project_name: projectName,
     ...(linkResult?.configPath ? { agent_config_path: linkResult.configPath } : {}),
     ...(linkResult?.configFormat ? { agent_config_format: linkResult.configFormat } : {}),
+    ...(linkResult?.linkId ? { agent_link_id: linkResult.linkId } : {}),
   });
 
   await verifyAction({

@@ -40,6 +40,7 @@ program
   .option('--agent <agent>', 'AI agent to link (cursor, claude, gemini, codex, or a custom agent name)', 'codex')
   .option('--config-path <path>', 'MCP config file path for custom or overridden agent config')
   .option('--config-format <format>', 'MCP config format for --config-path (json or toml)')
+  .option('--link-id <id>', 'Stable Tarae MCP link id for multi-agent attribution')
   .option('--fixed-project-root', 'Write --project-root into MCP config instead of resolving it at call time')
   .option('--project-root <path>', 'Project root directory that topa is allowed to watch')
   .action(async (options, cmd) => {
@@ -56,6 +57,7 @@ program
   .description('Link Tarae MCP server to an AI agent config')
   .option('--config-path <path>', 'MCP config file path for custom or overridden agent config')
   .option('--config-format <format>', 'MCP config format for --config-path (json or toml)')
+  .option('--link-id <id>', 'Stable Tarae MCP link id for multi-agent attribution')
   .option('--fixed-project-root', 'Write --project-root into MCP config instead of resolving it at call time')
   .option('--project-root <path>', 'Project root directory that topa is allowed to watch')
   .action(async (agent, options, cmd) => {

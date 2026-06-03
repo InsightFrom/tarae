@@ -10,7 +10,10 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::config::AppConfig;
-use crate::history::{HistoryStore, SearchHit, SessionIndexEntry};
+use crate::history::{
+    active_session_owner_key, ActiveSessionRecord, HistoryStore, SearchCriteria, SearchHit,
+    SessionIndexEntry,
+};
 use crate::mcp::schema::*;
 use crate::security::pii_filter::PiiFilter;
 use crate::watcher::root;
@@ -26,6 +29,21 @@ pub struct SessionState {
     pub file_changes: Vec<FileChange>,
     pub tags: Vec<String>,
     pub estimated_tokens: u32,
+}
+
+#[derive(Debug, Clone)]
+struct RequestContext {
+    agent_name: Option<String>,
+    link_id: Option<String>,
+    active_key: String,
+    explicit_identity: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ActiveSessionRef {
+    session_id: Uuid,
+    active_key: String,
+    actor: Actor,
 }
 
 /// Project-scoped state owner for sessions, history writes, and file watching.
@@ -82,14 +100,7 @@ impl TaraeCore {
     }
 
     pub async fn is_active_session_running_for_root(&self, project_root: &Path) -> bool {
-        let key = root_key(project_root);
-        if self.active_sessions.read().await.contains_key(&key) {
-            return true;
-        }
-        match self.history_store_for_root(project_root) {
-            Ok(store) => store.get_active_session().unwrap_or(None).is_some(),
-            Err(_) => false,
-        }
+        self.active_session_count_for_root(project_root).await > 0
     }
 
     fn history_store_for_root(&self, project_root: &Path) -> Result<HistoryStore, String> {
@@ -137,35 +148,136 @@ impl TaraeCore {
 
     async fn single_active_project_root(&self) -> Option<PathBuf> {
         let active = self.active_sessions.read().await;
-        if active.len() != 1 {
+        let roots = active
+            .keys()
+            .filter_map(|key| project_root_from_active_key(key))
+            .collect::<HashSet<_>>();
+        if roots.len() != 1 {
             return None;
         }
-        active.keys().next().map(PathBuf::from)
+        roots.into_iter().next().map(PathBuf::from)
     }
 
-    pub(crate) async fn create_event_for_root(
+    fn request_context(&self, agent_name: Option<&str>, link_id: Option<&str>) -> RequestContext {
+        let provided_agent = clean_optional(agent_name);
+        let configured_agent = clean_optional(self.config.agent_name.as_deref());
+        let provided_link = clean_optional(link_id);
+        let configured_link = clean_optional(self.config.link_id.as_deref());
+        let explicit_identity = provided_agent.is_some()
+            || configured_agent.is_some()
+            || provided_link.is_some()
+            || configured_link.is_some();
+        let agent_name = provided_agent
+            .or(configured_agent)
+            .or_else(|| Some("mcp-client".to_string()));
+        let link_id = provided_link.or(configured_link);
+        let active_key = active_session_owner_key(agent_name.as_deref(), link_id.as_deref());
+        RequestContext {
+            agent_name,
+            link_id,
+            active_key,
+            explicit_identity,
+        }
+    }
+
+    async fn create_event_for_root(
         &self,
         project_root: &Path,
         event_type: EventType,
-        payload: EventPayload,
+        mut payload: EventPayload,
+        context: &RequestContext,
     ) -> TopaEvent {
-        let active_id = self
-            .active_sessions
-            .read()
-            .await
-            .get(&root_key(project_root))
-            .copied();
+        let active = self
+            .active_session_ref_for_root(project_root, context)
+            .await;
+
+        if payload.attribution.is_none() {
+            payload.attribution = Some(Attribution {
+                status: AttributionStatus::Explicit,
+                reason: None,
+                active_session_count: active.as_ref().map(|_| 1).unwrap_or(0),
+                candidate_session_ids: active
+                    .as_ref()
+                    .map(|session| vec![session.session_id.to_string()])
+                    .unwrap_or_default(),
+            });
+        }
 
         let mut event = TopaEvent::new(
             event_type,
-            Actor {
-                actor_type: ActorType::AiAgent,
-                agent_name: Some("mcp-client".to_string()),
-            },
+            active
+                .as_ref()
+                .map(|session| session.actor.clone())
+                .unwrap_or_else(|| Actor {
+                    actor_type: ActorType::AiAgent,
+                    agent_name: context.agent_name.clone(),
+                    link_id: context.link_id.clone(),
+                }),
             payload,
         );
-        event.session_id = active_id;
+        event.session_id = active.map(|session| session.session_id);
         event
+    }
+
+    pub(crate) async fn create_watcher_event_for_root(
+        &self,
+        project_root: &Path,
+        event_type: EventType,
+        mut payload: EventPayload,
+    ) -> TopaEvent {
+        let active = self.active_session_refs_for_root(project_root).await;
+        match active.as_slice() {
+            [session] => {
+                payload.attribution = Some(Attribution {
+                    status: AttributionStatus::SingleActiveSession,
+                    reason: Some(
+                        "watcher attributed file changes to the only active AI session".to_string(),
+                    ),
+                    active_session_count: 1,
+                    candidate_session_ids: vec![session.session_id.to_string()],
+                });
+                let mut event = TopaEvent::new(event_type, session.actor.clone(), payload);
+                event.session_id = Some(session.session_id);
+                event
+            }
+            [] => {
+                payload.attribution = Some(Attribution {
+                    status: AttributionStatus::HeuristicAi,
+                    reason: Some("watcher saw AI-like activity but no active lifecycle session was identifiable".to_string()),
+                    active_session_count: 0,
+                    candidate_session_ids: Vec::new(),
+                });
+                TopaEvent::new(
+                    event_type,
+                    Actor {
+                        actor_type: ActorType::AiAgent,
+                        agent_name: Some("mcp-client".to_string()),
+                        link_id: None,
+                    },
+                    payload,
+                )
+            }
+            sessions => {
+                payload.attribution = Some(Attribution {
+                    status: AttributionStatus::AmbiguousActiveSessions,
+                    reason: Some("multiple active AI sessions exist for this project; watcher did not assign changes to one agent".to_string()),
+                    active_session_count: sessions.len(),
+                    candidate_session_ids: sessions
+                        .iter()
+                        .map(|session| session.session_id.to_string())
+                        .collect(),
+                });
+                TopaEvent::new(
+                    event_type,
+                    Actor {
+                        actor_type: ActorType::AiAgent,
+                        agent_name: Some("multiple-ai-agents".to_string()),
+                        link_id: None,
+                    },
+                    payload,
+                )
+            }
+        }
     }
 
     pub(crate) async fn record_event_for_root(
@@ -267,6 +379,20 @@ impl TaraeBridgeServer {
             .remove(&root_key(project_root));
     }
 
+    fn apply_agent_defaults(&self, agent_name: &mut Option<String>, link_id: &mut Option<String>) {
+        if agent_name
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            *agent_name = clean_optional(self.config.agent_name.as_deref());
+        }
+        if link_id.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            *link_id = clean_optional(self.config.link_id.as_deref());
+        }
+    }
+
     async fn call_daemon<T: Serialize + ?Sized>(
         &self,
         project_root: &Path,
@@ -290,6 +416,9 @@ pub struct StartSessionParams {
     /// Name of the AI agent (e.g., "cursor", "copilot", "claude")
     #[serde(default)]
     pub agent_name: Option<String>,
+    /// Stable MCP link identifier. Defaults from TARAE_LINK_ID when linked by Tarae CLI.
+    #[serde(default)]
+    pub link_id: Option<String>,
     /// Optional tags for this session (e.g., "#backend", "#auth")
     #[serde(default)]
     pub tags: Vec<String>,
@@ -311,6 +440,12 @@ pub struct CheckpointParams {
     /// Optional tags
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Name of the AI agent. Usually supplied automatically by the MCP link.
+    #[serde(default)]
+    pub agent_name: Option<String>,
+    /// Stable MCP link identifier. Usually supplied automatically by the MCP link.
+    #[serde(default)]
+    pub link_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -342,6 +477,12 @@ pub struct ReportIssueParams {
     /// Runtime or framework version info
     #[serde(default)]
     pub runtime_version: Option<String>,
+    /// Name of the AI agent. Usually supplied automatically by the MCP link.
+    #[serde(default)]
+    pub agent_name: Option<String>,
+    /// Stable MCP link identifier. Usually supplied automatically by the MCP link.
+    #[serde(default)]
+    pub link_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -352,6 +493,12 @@ pub struct EndSessionParams {
     /// Project root directory for the session to end. Usually omitted unless multiple project sessions are active.
     #[serde(default)]
     pub project_root: Option<String>,
+    /// Name of the AI agent. Usually supplied automatically by the MCP link.
+    #[serde(default)]
+    pub agent_name: Option<String>,
+    /// Stable MCP link identifier. Usually supplied automatically by the MCP link.
+    #[serde(default)]
+    pub link_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -403,6 +550,30 @@ pub struct SearchHistoryParams {
     /// Event type filter, e.g. checkpoint, issue_report, session_end
     #[serde(default)]
     pub event_type: Option<String>,
+    /// Agent name filter, e.g. codex, gemini, claude
+    #[serde(default)]
+    pub agent_name: Option<String>,
+    /// MCP link id filter
+    #[serde(default)]
+    pub link_id: Option<String>,
+    /// Session id substring filter
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// Session status filter: active or completed
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Tag substring filter
+    #[serde(default)]
+    pub tag: Option<String>,
+    /// Inclusive lower timestamp bound. Use YYYY-MM-DD or RFC3339.
+    #[serde(default)]
+    pub after: Option<String>,
+    /// Inclusive upper timestamp bound. Use YYYY-MM-DD or RFC3339.
+    #[serde(default)]
+    pub before: Option<String>,
+    /// Sort order: desc or asc
+    #[serde(default = "default_search_sort")]
+    pub sort: String,
     /// Maximum number of matches to return
     #[serde(default = "default_history_limit")]
     pub limit: usize,
@@ -416,12 +587,41 @@ fn default_history_limit() -> usize {
     20
 }
 
+fn default_search_sort() -> String {
+    "desc".to_string()
+}
+
 fn default_session_format() -> String {
     "markdown".to_string()
 }
 
 fn root_key(project_root: &Path) -> String {
     project_root.display().to_string()
+}
+
+fn active_session_key(project_root: &Path, owner_key: &str) -> String {
+    format!("{}\0{}", root_key(project_root), owner_key)
+}
+
+fn project_root_from_active_key(active_key: &str) -> Option<String> {
+    active_key
+        .split_once('\0')
+        .map(|(root, _)| root.to_string())
+        .or_else(|| Some(active_key.to_string()))
+}
+
+fn owner_from_active_session_key(active_key: &str) -> &str {
+    active_key
+        .split_once('\0')
+        .map(|(_, owner)| owner)
+        .unwrap_or(active_key)
+}
+
+fn clean_optional(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn resolve_safe_project_root(config_root: Option<&str>) -> Result<PathBuf, String> {
@@ -497,11 +697,16 @@ impl TaraeCore {
         params: StartSessionParams,
     ) -> Result<String, String> {
         self.start_watcher_if_needed(&project_root).await;
-        if let Some(existing) = self.active_session_id_for_root(&project_root).await {
+        let context = self.request_context(params.agent_name.as_deref(), params.link_id.as_deref());
+        if let Some(existing) = self
+            .active_session_ref_for_root(&project_root, &context)
+            .await
+        {
             return Ok(format!(
-                "✅ Session already active: {}\nUsing existing active session for {}",
-                existing,
-                project_root.display()
+                "✅ Session already active: {}\nUsing existing active session for {} ({})",
+                existing.session_id,
+                project_root.display(),
+                context.active_key
             ));
         }
 
@@ -509,7 +714,8 @@ impl TaraeCore {
         let session_id = Uuid::new_v4();
         let actor = Actor {
             actor_type: ActorType::AiAgent,
-            agent_name: params.agent_name.clone(),
+            agent_name: context.agent_name.clone(),
+            link_id: context.link_id.clone(),
         };
 
         let state = SessionState {
@@ -528,7 +734,10 @@ impl TaraeCore {
         }
         {
             let mut active = self.active_sessions.write().await;
-            active.insert(project_key, session_id);
+            active.insert(
+                active_session_key(&project_root, &context.active_key),
+                session_id,
+            );
         }
 
         let payload = EventPayload {
@@ -538,7 +747,7 @@ impl TaraeCore {
         };
 
         let mut event = self
-            .create_event_for_root(&project_root, EventType::SessionStart, payload)
+            .create_event_for_root(&project_root, EventType::SessionStart, payload, &context)
             .await;
         event.session_id = Some(session_id);
         event.actor = actor;
@@ -549,7 +758,8 @@ impl TaraeCore {
             if let Err(e) = store.set_active_session(
                 &session_id.to_string(),
                 Some(&params.objective),
-                params.agent_name.as_deref(),
+                context.agent_name.as_deref(),
+                context.link_id.as_deref(),
             ) {
                 tracing::warn!("Failed to persist active session: {}", e);
             }
@@ -566,10 +776,14 @@ impl TaraeCore {
         let file_changes = file_changes_from_input(params.files_changed);
         let file_count = file_changes.len();
         let filtered_summary = PiiFilter::filter_text(&params.summary);
+        let context = self.request_context(params.agent_name.as_deref(), params.link_id.as_deref());
 
-        if let Some(session_id) = self.active_session_id_for_root(&project_root).await {
+        if let Some(active) = self
+            .active_session_ref_for_root(&project_root, &context)
+            .await
+        {
             let mut sessions = self.sessions.write().await;
-            if let Some(state) = sessions.get_mut(&session_id) {
+            if let Some(state) = sessions.get_mut(&active.session_id) {
                 state.file_changes.extend(file_changes.clone());
                 if let Some(tokens) = params.estimated_tokens {
                     state.estimated_tokens += tokens;
@@ -588,7 +802,7 @@ impl TaraeCore {
         };
 
         let event = self
-            .create_event_for_root(&project_root, EventType::Checkpoint, payload)
+            .create_event_for_root(&project_root, EventType::Checkpoint, payload, &context)
             .await;
         let msg = self.record_event_for_root(&project_root, &event).await;
         Ok(format!(
@@ -603,6 +817,7 @@ impl TaraeCore {
         params: ReportIssueParams,
     ) -> Result<String, String> {
         let filtered_message = PiiFilter::filter_text(&params.error_message);
+        let context = self.request_context(params.agent_name.as_deref(), params.link_id.as_deref());
         let payload = EventPayload {
             error_context: Some(ErrorContext {
                 error_message: filtered_message.clone(),
@@ -618,7 +833,7 @@ impl TaraeCore {
         };
 
         let event = self
-            .create_event_for_root(&project_root, EventType::IssueReport, payload)
+            .create_event_for_root(&project_root, EventType::IssueReport, payload, &context)
             .await;
         let msg = self.record_event_for_root(&project_root, &event).await;
         Ok(format!("🐛 Issue reported: {}\n{}", filtered_message, msg))
@@ -629,11 +844,18 @@ impl TaraeCore {
         project_root: PathBuf,
         params: EndSessionParams,
     ) -> Result<String, String> {
-        let project_key = root_key(&project_root);
-        let session_id = self
-            .active_session_id_for_root(&project_root)
+        let context = self.request_context(params.agent_name.as_deref(), params.link_id.as_deref());
+        let active = self
+            .active_session_ref_for_root(&project_root, &context)
             .await
-            .ok_or_else(|| "No active session to end for this project root".to_string())?;
+            .ok_or_else(|| {
+                format!(
+                    "No active session to end for this project root and owner {}",
+                    context.active_key
+                )
+            })?;
+        let session_id = active.session_id;
+        let active_owner_key = active.active_key.clone();
 
         let session_stats = {
             let sessions = self.sessions.read().await;
@@ -648,16 +870,16 @@ impl TaraeCore {
         };
 
         let event = self
-            .create_event_for_root(&project_root, EventType::SessionEnd, payload)
+            .create_event_for_root(&project_root, EventType::SessionEnd, payload, &context)
             .await;
         let msg = self.record_event_for_root(&project_root, &event).await;
 
         {
             let mut active = self.active_sessions.write().await;
-            active.remove(&project_key);
+            active.remove(&active_session_key(&project_root, &active_owner_key));
         }
         if let Ok(store) = self.history_store_for_root(&project_root) {
-            if let Err(e) = store.clear_active_session() {
+            if let Err(e) = store.clear_active_session(Some(&active_owner_key)) {
                 tracing::warn!("Failed to clear active session: {}", e);
             }
         }
@@ -725,25 +947,133 @@ impl TaraeCore {
     ) -> Result<String, String> {
         let store = self.history_store_for_root(&project_root)?;
         let hits = store
-            .search_history(
-                params.query.as_deref(),
-                params.file_path.as_deref(),
-                params.event_type.as_deref(),
-                params.limit,
-            )
+            .search_history(SearchCriteria {
+                query: params.query,
+                file_path: params.file_path,
+                event_type: params.event_type,
+                agent_name: params.agent_name,
+                link_id: params.link_id,
+                session_id: params.session_id,
+                status: params.status,
+                tag: params.tag,
+                after: params.after,
+                before: params.before,
+                limit: params.limit,
+                sort_desc: !params.sort.eq_ignore_ascii_case("asc"),
+            })
             .map_err(|e| e.to_string())?;
         Ok(format_search_hits(&hits))
     }
 
-    async fn active_session_id_for_root(&self, project_root: &Path) -> Option<Uuid> {
-        let key = root_key(project_root);
+    async fn active_session_count_for_root(&self, project_root: &Path) -> usize {
+        self.active_session_refs_for_root(project_root).await.len()
+    }
+
+    async fn active_session_ref_for_root(
+        &self,
+        project_root: &Path,
+        context: &RequestContext,
+    ) -> Option<ActiveSessionRef> {
+        let key = active_session_key(project_root, &context.active_key);
         if let Some(session_id) = self.active_sessions.read().await.get(&key).copied() {
-            return Some(session_id);
+            return Some(self.active_session_ref_from_memory(&key, session_id).await);
         }
 
         let store = self.history_store_for_root(project_root).ok()?;
-        let record = store.get_active_session_record().ok().flatten()?;
+        if let Some(record) = store
+            .get_active_session_record(&context.active_key)
+            .ok()
+            .flatten()
+        {
+            return self
+                .remember_active_session_record(project_root, record)
+                .await;
+        }
+
+        if !context.explicit_identity {
+            if let Some(record) = store.get_only_active_session_record().ok().flatten() {
+                return self
+                    .remember_active_session_record(project_root, record)
+                    .await;
+            }
+        }
+
+        None
+    }
+
+    async fn active_session_refs_for_root(&self, project_root: &Path) -> Vec<ActiveSessionRef> {
+        let root = root_key(project_root);
+        let mut refs_by_session = HashMap::<Uuid, ActiveSessionRef>::new();
+        let memory_entries = self
+            .active_sessions
+            .read()
+            .await
+            .iter()
+            .filter(|(key, _)| project_root_from_active_key(key).as_deref() == Some(root.as_str()))
+            .map(|(key, session_id)| (key.clone(), *session_id))
+            .collect::<Vec<_>>();
+
+        for (key, session_id) in memory_entries {
+            let active_ref = self.active_session_ref_from_memory(&key, session_id).await;
+            refs_by_session.insert(active_ref.session_id, active_ref);
+        }
+
+        if let Some(records) = self
+            .history_store_for_root(project_root)
+            .ok()
+            .and_then(|store| store.get_active_session_records().ok())
+        {
+            for record in records {
+                if let Some(active_ref) = self
+                    .remember_active_session_record(project_root, record)
+                    .await
+                {
+                    refs_by_session.insert(active_ref.session_id, active_ref);
+                }
+            }
+        }
+
+        refs_by_session.into_values().collect()
+    }
+
+    async fn active_session_ref_from_memory(
+        &self,
+        active_key: &str,
+        session_id: Uuid,
+    ) -> ActiveSessionRef {
+        let actor = self
+            .sessions
+            .read()
+            .await
+            .get(&session_id)
+            .map(|state| state.actor.clone())
+            .unwrap_or_else(|| Actor {
+                actor_type: ActorType::AiAgent,
+                agent_name: Some("mcp-client".to_string()),
+                link_id: None,
+            });
+        ActiveSessionRef {
+            session_id,
+            active_key: owner_from_active_session_key(active_key).to_string(),
+            actor,
+        }
+    }
+
+    async fn remember_active_session_record(
+        &self,
+        project_root: &Path,
+        record: ActiveSessionRecord,
+    ) -> Option<ActiveSessionRef> {
         let session_id = Uuid::parse_str(&record.session_id).ok()?;
+        let owner_key = record.active_key.clone().unwrap_or_else(|| {
+            active_session_owner_key(record.agent_name.as_deref(), record.link_id.as_deref())
+        });
+        let key = active_session_key(project_root, &owner_key);
+        let actor = Actor {
+            actor_type: ActorType::AiAgent,
+            agent_name: record.agent_name.clone(),
+            link_id: record.link_id.clone(),
+        };
         {
             let mut active = self.active_sessions.write().await;
             active.insert(key.clone(), session_id);
@@ -752,18 +1082,19 @@ impl TaraeCore {
             let mut sessions = self.sessions.write().await;
             sessions.entry(session_id).or_insert_with(|| SessionState {
                 session_id,
-                project_root: key,
+                project_root: root_key(project_root),
                 objective: record.objective.clone(),
-                actor: Actor {
-                    actor_type: ActorType::AiAgent,
-                    agent_name: record.agent_name.clone(),
-                },
+                actor: actor.clone(),
                 file_changes: Vec::new(),
                 tags: Vec::new(),
                 estimated_tokens: 0,
             });
         }
-        Some(session_id)
+        Some(ActiveSessionRef {
+            session_id,
+            active_key: owner_key,
+            actor,
+        })
     }
 }
 
@@ -888,7 +1219,9 @@ impl TaraeServer {
         self.core.read_session_for_root(project_root, params).await
     }
 
-    #[tool(description = "Search local Tarae history by query, file path, and event type.")]
+    #[tool(
+        description = "Search local Tarae history by query, file path, event type, agent, link id, tags, status, session id, and time range."
+    )]
     async fn search_history(
         &self,
         peer: Peer<RoleServer>,
@@ -915,6 +1248,7 @@ impl TaraeBridgeServer {
         let project_root = self
             .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), false)
             .await?;
+        self.apply_agent_defaults(&mut params.agent_name, &mut params.link_id);
         params.project_root = Some(root_key(&project_root));
         let result = self
             .call_daemon(&project_root, "start_session", &params)
@@ -934,6 +1268,7 @@ impl TaraeBridgeServer {
         let project_root = self
             .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), true)
             .await?;
+        self.apply_agent_defaults(&mut params.agent_name, &mut params.link_id);
         params.project_root = Some(root_key(&project_root));
         self.call_daemon(&project_root, "checkpoint", &params).await
     }
@@ -947,6 +1282,7 @@ impl TaraeBridgeServer {
         let project_root = self
             .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), true)
             .await?;
+        self.apply_agent_defaults(&mut params.agent_name, &mut params.link_id);
         params.project_root = Some(root_key(&project_root));
         self.call_daemon(&project_root, "report_issue", &params)
             .await
@@ -961,6 +1297,7 @@ impl TaraeBridgeServer {
         let project_root = self
             .resolve_project_root_for_call(params.project_root.as_deref(), Some(&peer), true)
             .await?;
+        self.apply_agent_defaults(&mut params.agent_name, &mut params.link_id);
         params.project_root = Some(root_key(&project_root));
         let result = self
             .call_daemon(&project_root, "end_session", &params)
@@ -1013,7 +1350,9 @@ impl TaraeBridgeServer {
             .await
     }
 
-    #[tool(description = "Search local Tarae history by query, file path, and event type.")]
+    #[tool(
+        description = "Search local Tarae history by query, file path, event type, agent, link id, tags, status, session id, and time range."
+    )]
     async fn search_history(
         &self,
         peer: Peer<RoleServer>,
@@ -1042,6 +1381,15 @@ fn format_sessions(title: &str, sessions: &[SessionIndexEntry]) -> String {
         if let Some(objective) = &session.objective {
             out.push_str(&format!("\n  Objective: {objective}"));
         }
+        if session.agent_name.is_some() || session.link_id.is_some() {
+            out.push_str("\n  Actor:");
+            if let Some(agent_name) = &session.agent_name {
+                out.push_str(&format!(" agent={agent_name}"));
+            }
+            if let Some(link_id) = &session.link_id {
+                out.push_str(&format!(" link={link_id}"));
+            }
+        }
         if let Some(summary) = &session.last_summary {
             out.push_str(&format!("\n  Last: {summary}"));
         }
@@ -1064,8 +1412,26 @@ fn format_search_hits(hits: &[SearchHit]) -> String {
         if let Some(summary) = &hit.summary {
             out.push_str(&format!("\n  Summary: {summary}"));
         }
+        if hit.agent_name.is_some() || hit.link_id.is_some() || hit.status.is_some() {
+            out.push_str("\n  Context:");
+            if let Some(agent_name) = &hit.agent_name {
+                out.push_str(&format!(" agent={agent_name}"));
+            }
+            if let Some(link_id) = &hit.link_id {
+                out.push_str(&format!(" link={link_id}"));
+            }
+            if let Some(status) = &hit.status {
+                out.push_str(&format!(" status={status}"));
+            }
+        }
         if !hit.files.is_empty() {
             out.push_str(&format!("\n  Files: {}", hit.files.join(", ")));
+        }
+        if let Some(snippet) = &hit.snippet {
+            out.push_str(&format!("\n  Snippet: {snippet}"));
+        }
+        if !hit.matched_fields.is_empty() {
+            out.push_str(&format!("\n  Matched: {}", hit.matched_fields.join(", ")));
         }
         out.push('\n');
     }
@@ -1091,5 +1457,86 @@ impl ServerHandler for TaraeBridgeServer {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())
             .with_instructions("Topa (톺아) — Tarae's stdio MCP bridge. Tool calls are forwarded to one project-scoped topa daemon that owns watching, history writes, and active session state. Use start_session to begin tracking, checkpoint to save progress, report_issue to log errors, end_session to close work, and list_sessions/read_session/search_history/fetch_past_context for local project history.")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn active_session_lookup_is_scoped_by_link_id() {
+        let dir = TempDir::new().unwrap();
+        let store = HistoryStore::open(dir.path()).unwrap();
+        let codex_id = Uuid::new_v4();
+        let gemini_id = Uuid::new_v4();
+        store
+            .set_active_session(
+                &codex_id.to_string(),
+                Some("backend"),
+                Some("codex"),
+                Some("codex-main"),
+            )
+            .unwrap();
+        store
+            .set_active_session(
+                &gemini_id.to_string(),
+                Some("qa"),
+                Some("gemini"),
+                Some("gemini-main"),
+            )
+            .unwrap();
+
+        let core = TaraeCore::new(Arc::new(AppConfig::default()));
+        let codex_context = core.request_context(Some("codex"), Some("codex-main"));
+        let gemini_context = core.request_context(Some("gemini"), Some("gemini-main"));
+        let default_context = core.request_context(None, None);
+
+        assert_eq!(
+            core.active_session_ref_for_root(dir.path(), &codex_context)
+                .await
+                .unwrap()
+                .session_id,
+            codex_id
+        );
+        let partial_memory_event = core
+            .create_watcher_event_for_root(
+                dir.path(),
+                EventType::AutoCheckpoint,
+                EventPayload::default(),
+            )
+            .await;
+        assert_eq!(
+            partial_memory_event.payload.attribution.unwrap().status,
+            AttributionStatus::AmbiguousActiveSessions
+        );
+
+        assert_eq!(
+            core.active_session_ref_for_root(dir.path(), &gemini_context)
+                .await
+                .unwrap()
+                .session_id,
+            gemini_id
+        );
+        assert!(core
+            .active_session_ref_for_root(dir.path(), &default_context)
+            .await
+            .is_none());
+
+        let event = core
+            .create_watcher_event_for_root(
+                dir.path(),
+                EventType::AutoCheckpoint,
+                EventPayload::default(),
+            )
+            .await;
+        let attribution = event.payload.attribution.unwrap();
+        assert_eq!(
+            attribution.status,
+            AttributionStatus::AmbiguousActiveSessions
+        );
+        assert_eq!(attribution.active_session_count, 2);
+        assert!(event.session_id.is_none());
     }
 }

@@ -60,11 +60,13 @@ gemini
 
 CLI 会通过 `MCP files touched` 摘要显示读取、备份和写入了哪些配置文件。
 默认 MCP 配置不会固定到某个项目。Tarae 会通过 MCP `roots/list` 或 lifecycle/history 工具的 `project_root` 参数确定项目。两者都不可用的 MCP 客户端可以使用 `--fixed-project-root`。
+每个 MCP 配置还会记录 `TARAE_AGENT_NAME` 和 `TARAE_LINK_ID`。当多个 AI Agent 在同一个项目中并行运行时，active session 会按 link id 分离。编排工具可以通过 `--link-id <id>` 指定固定身份。
 
 对于不在支持列表中的 MCP 兼容 Agent，可以直接指定配置文件路径:
 
 ```bash
 tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+tarae link codex --project-root "$PWD" --link-id codex-backend
 tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 ```
 
@@ -90,6 +92,7 @@ tarae doctor --project-root "$PWD"
 ```text
 .tarae/topa/session_index.jsonl
 .tarae/topa/latest.md
+.tarae/topa/active_sessions.json
 .tarae/topa/runtime/server.json
 .tarae/topa/sessions/<session-id>.jsonl
 .tarae/topa/sessions/<session-id>.md

@@ -118,11 +118,13 @@ gemini
 The command prepares `topa`, writes MCP settings for the selected agent, and runs local verification.
 It also prints an `MCP files touched` summary showing which config file was read, backed up, or written.
 By default, the MCP config is project-root agnostic. Tarae resolves the project at tool-call time from MCP `roots/list`, or from the `project_root` argument passed to lifecycle and history tools. Use `--fixed-project-root` only for MCP clients that cannot provide either.
+Each linked MCP config also gets a stable `TARAE_LINK_ID` and `TARAE_AGENT_NAME`, so multiple agents can keep separate active sessions in the same project. Pass `--link-id <id>` when an orchestrator needs a predictable identity.
 
 For an unsupported MCP-capable agent, pass its config path. Tarae writes a JSON MCP config by default, or a Codex-style TOML config when the path ends in `.toml`.
 
 ```bash
 tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+tarae link codex --project-root "$PWD" --link-id codex-backend
 tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 ```
 
@@ -138,6 +140,7 @@ Expected local files after a session:
 ```text
 .tarae/topa/session_index.jsonl
 .tarae/topa/latest.md
+.tarae/topa/active_sessions.json
 .tarae/topa/runtime/server.json
 .tarae/topa/sessions/<session-id>.jsonl
 .tarae/topa/sessions/<session-id>.md
@@ -167,6 +170,10 @@ Codex example:
 [mcp_servers.tarae]
 command = "/Users/<user>/.tarae/bin/topa"
 args = ["serve"]
+
+[mcp_servers.tarae.env]
+TARAE_AGENT_NAME = "codex"
+TARAE_LINK_ID = "codex-backend"
 ```
 
 JSON-based clients use the same command and args shape:
@@ -177,6 +184,10 @@ JSON-based clients use the same command and args shape:
     "tarae": {
       "command": "/Users/<user>/.tarae/bin/topa",
       "args": ["serve"],
+      "env": {
+        "TARAE_AGENT_NAME": "gemini",
+        "TARAE_LINK_ID": "gemini-qa"
+      },
       "disabled": false
     }
   }
@@ -191,7 +202,7 @@ tarae link codex --project-root "$PWD" --fixed-project-root
 
 ## Stop Topa
 
-`topa serve` remains the MCP stdio entrypoint, but it is now a lightweight bridge. The first lifecycle tool call starts or reuses one project-scoped `topa daemon`, which owns file watching, active session state, and history writes.
+`topa serve` remains the MCP stdio entrypoint, but it is now a lightweight bridge. The first lifecycle tool call starts or reuses one project-scoped `topa daemon`, which owns file watching, active session state, and history writes. Active sessions are separated by MCP link id, so orchestrated agents can work in parallel without sharing one lifecycle session.
 
 To stop recording a session, call `end_session`. To stop the project daemon, run:
 

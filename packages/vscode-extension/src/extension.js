@@ -169,7 +169,7 @@ async function listSessions(provider) {
 async function searchHistory(provider) {
   const query = await vscode.window.showInputBox({
     title: 'Search Tarae History',
-    prompt: 'Search JSONL events. Filters: type:checkpoint file:src agent:codex tag:#release after:2026-05-01 before:2026-05-28.',
+    prompt: 'Search JSONL events. Filters: type:checkpoint file:src agent:codex link:codex-main tag:#release after:2026-05-01 before:2026-05-28.',
     ignoreFocusOut: true
   });
   if (!query) {
@@ -343,6 +343,7 @@ function normalizeSessionEntry(entry, sessionsDir) {
     session_id: sessionId,
     objective: entry.objective || '',
     agent_name: entry.agent_name || '',
+    link_id: entry.link_id || '',
     status: entry.status || 'unknown',
     started_at: entry.started_at || '',
     ended_at: entry.ended_at || '',
@@ -393,6 +394,7 @@ function sessionTooltip(entry) {
     entry.objective,
     `Session: ${entry.session_id}`,
     entry.agent_name ? `Agent: ${entry.agent_name}` : '',
+    entry.link_id ? `Link: ${entry.link_id}` : '',
     entry.status ? `Status: ${entry.status}` : '',
     entry.updated_at ? `Updated: ${entry.updated_at}` : '',
     entry.last_summary ? `Last summary: ${entry.last_summary}` : ''
@@ -404,6 +406,7 @@ function searchableText(entry) {
     entry.session_id,
     entry.objective,
     entry.agent_name,
+    entry.link_id,
     entry.status,
     entry.last_summary,
     ...entry.tags
@@ -416,6 +419,7 @@ function parseSearchQuery(input) {
     eventTypes: [],
     filePaths: [],
     agents: [],
+    links: [],
     tags: [],
     sessions: [],
     statuses: [],
@@ -449,6 +453,10 @@ function parseSearchQuery(input) {
       case 'agent':
       case 'actor':
         criteria.agents.push(value.toLowerCase());
+        break;
+      case 'link':
+      case 'link_id':
+        criteria.links.push(value.toLowerCase());
         break;
       case 'tag':
         criteria.tags.push(value.toLowerCase());
@@ -541,6 +549,16 @@ function matchSearchEvent(entry, event, criteria) {
     return { ok: false };
   }
 
+  const links = [
+    event.actor && event.actor.link_id,
+    entry.link_id
+  ].filter(Boolean).map((value) => String(value).toLowerCase());
+  if (criteria.links.length && !criteria.links.some((needle) => (
+    links.some((link) => link.includes(needle))
+  ))) {
+    return { ok: false };
+  }
+
   const tags = eventTags(entry, event).map((tag) => tag.toLowerCase());
   if (criteria.tags.length && !criteria.tags.every((needle) => (
     tags.some((tag) => tag.includes(needle))
@@ -569,7 +587,7 @@ function eventQuickPickLabel(event) {
 function eventSearchDetail(entry, event, criteria, haystack) {
   const files = eventFileChanges(event);
   const fileSummary = files.slice(0, 3).map(formatFileChange).join(', ');
-  const firstTerm = criteria.terms[0] || criteria.filePaths[0] || criteria.agents[0] || criteria.tags[0] || '';
+  const firstTerm = criteria.terms[0] || criteria.filePaths[0] || criteria.agents[0] || criteria.links[0] || criteria.tags[0] || '';
   const snippet = firstTerm ? firstMatchingLine(haystack, firstTerm) : '';
   return [
     eventSummary(event) || entry.last_summary,
@@ -582,6 +600,7 @@ function eventSearchText(entry, event) {
   const payload = event.payload || {};
   const error = payload.error_context || {};
   const gitRef = payload.git_ref || {};
+  const attribution = payload.attribution || {};
   const files = eventFileChanges(event);
   return [
     searchableText(entry),
@@ -591,6 +610,7 @@ function eventSearchText(entry, event) {
     event.session_id,
     event.actor && event.actor.type,
     event.actor && event.actor.agent_name,
+    event.actor && event.actor.link_id,
     payload.objective,
     payload.summary,
     ...asArray(payload.tags),
@@ -600,6 +620,9 @@ function eventSearchText(entry, event) {
     error.error_message,
     error.runtime_version,
     ...asArray(error.log_tail),
+    attribution.status,
+    attribution.reason,
+    ...asArray(attribution.candidate_session_ids),
     ...files.flatMap((file) => [
       file.path,
       file.action,

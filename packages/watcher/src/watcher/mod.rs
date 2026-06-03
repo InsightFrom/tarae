@@ -8,7 +8,10 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
-use crate::mcp::schema::{Actor, ActorType, EventPayload, EventType, FileChange, GitRef};
+use crate::mcp::schema::{
+    Actor, ActorType, Attribution, AttributionStatus, EventPayload, EventType, FileChange, GitRef,
+    TopaEvent,
+};
 use crate::mcp::tools::TaraeCore;
 use crate::watcher::auto_checkpoint::AutoCheckpoint;
 use crate::watcher::state_machine::StateMachine;
@@ -121,7 +124,7 @@ async fn start_background_watcher_loop(server: TaraeCore, project_root: std::pat
                                         ..Default::default()
                                     };
 
-                                    let event = server.create_event_for_root(&project_root, EventType::AutoCheckpoint, payload).await;
+                                    let event = server.create_watcher_event_for_root(&project_root, EventType::AutoCheckpoint, payload).await;
                                     let msg = server.record_event_for_root(&project_root, &event).await;
                                     last_recorded_change_signature = Some(signature);
                                     debug!("AutoCheckpoint record result: {}", msg);
@@ -173,14 +176,24 @@ async fn start_background_watcher_loop(server: TaraeCore, project_root: std::pat
                             )),
                             file_changes: Some(taken),
                             git_ref,
+                            attribution: Some(Attribution {
+                                status: AttributionStatus::Human,
+                                reason: Some("watcher recorded file changes without an identifiable active AI session".to_string()),
+                                active_session_count: 0,
+                                candidate_session_ids: Vec::new(),
+                            }),
                             ..Default::default()
                         };
 
-                        let mut event = server.create_event_for_root(&project_root, EventType::HumanIntervention, payload).await;
-                        event.actor = Actor {
-                            actor_type: ActorType::Human,
-                            agent_name: None,
-                        };
+                        let event = TopaEvent::new(
+                            EventType::HumanIntervention,
+                            Actor {
+                                actor_type: ActorType::Human,
+                                agent_name: None,
+                                link_id: None,
+                            },
+                            payload,
+                        );
 
                         let msg = server.record_event_for_root(&project_root, &event).await;
                         last_recorded_change_signature = Some(signature);

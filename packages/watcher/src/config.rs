@@ -14,6 +14,10 @@ pub struct AppConfig {
     /// Preferred language for watcher-generated summaries.
     #[serde(default = "default_summary_language")]
     pub summary_language: String,
+    /// AI agent name supplied by the MCP link configuration, for example codex or gemini.
+    pub agent_name: Option<String>,
+    /// Stable MCP link identifier supplied by the CLI link configuration.
+    pub link_id: Option<String>,
 }
 
 fn default_auto_checkpoint_threshold() -> u32 {
@@ -30,6 +34,8 @@ impl Default for AppConfig {
             project_root: None,
             auto_checkpoint_threshold: default_auto_checkpoint_threshold(),
             summary_language: default_summary_language(),
+            agent_name: None,
+            link_id: None,
         }
     }
 }
@@ -56,6 +62,8 @@ mod tests {
         assert!(config.project_root.is_none());
         assert_eq!(config.auto_checkpoint_threshold, 5);
         assert_eq!(config.summary_language, "ko");
+        assert!(config.agent_name.is_none());
+        assert!(config.link_id.is_none());
     }
 
     #[test]

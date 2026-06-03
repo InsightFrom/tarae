@@ -45,6 +45,8 @@ pub struct Actor {
     pub actor_type: ActorType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -79,6 +81,30 @@ pub struct EventPayload {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub estimated_tokens: Option<u32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<Attribution>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Attribution {
+    pub status: AttributionStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub active_session_count: usize,
+    #[serde(default)]
+    pub candidate_session_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AttributionStatus {
+    Explicit,
+    SingleActiveSession,
+    AmbiguousActiveSessions,
+    HeuristicAi,
+    Human,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +156,7 @@ mod tests {
             Actor {
                 actor_type: ActorType::AiAgent,
                 agent_name: Some("cursor".to_string()),
+                link_id: Some("cursor-default".to_string()),
             },
             EventPayload {
                 summary: Some("Added JWT validation middleware".to_string()),
@@ -180,6 +207,7 @@ mod tests {
             Actor {
                 actor_type: ActorType::AiAgent,
                 agent_name: None,
+                link_id: None,
             },
             EventPayload::default(),
         );
@@ -198,6 +226,7 @@ mod tests {
         assert!(payload.error_context.is_none());
         assert!(payload.tags.is_empty());
         assert!(payload.estimated_tokens.is_none());
+        assert!(payload.attribution.is_none());
     }
 
     #[test]
@@ -207,6 +236,7 @@ mod tests {
             Actor {
                 actor_type: ActorType::Human,
                 agent_name: None,
+                link_id: None,
             },
             EventPayload {
                 summary: Some("Human coding activity detected".to_string()),
@@ -234,6 +264,7 @@ mod tests {
             Actor {
                 actor_type: ActorType::AiAgent,
                 agent_name: None,
+                link_id: None,
             },
             EventPayload::default(),
         );
@@ -241,6 +272,8 @@ mod tests {
         // None fields should be omitted
         assert!(!json.contains("session_id"));
         assert!(!json.contains("agent_name"));
+        assert!(!json.contains("link_id"));
+        assert!(!json.contains("attribution"));
         assert!(!json.contains("summary"));
         assert!(!json.contains("objective"));
         assert!(!json.contains("git_ref"));

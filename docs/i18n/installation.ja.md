@@ -60,11 +60,13 @@ gemini
 
 CLI は `MCP files touched` の要約で、どの設定ファイルを読み取り、バックアップし、書き込んだかを表示します。
 デフォルトの MCP 設定は特定のプロジェクトに固定されません。Tarae は MCP `roots/list` または lifecycle/history ツールの `project_root` 引数からプロジェクトを決定します。どちらも使えない MCP クライアントでは `--fixed-project-root` を使えます。
+各 MCP 設定には `TARAE_AGENT_NAME` と `TARAE_LINK_ID` も記録されます。同じプロジェクトで複数の AI エージェントを並列実行する場合、link id ごとにアクティブセッションが分離されます。オーケストレーションツールでは `--link-id <id>` で固定 ID を指定できます。
 
 対応一覧にない MCP 対応エージェントでは、設定ファイルのパスを直接指定できます:
 
 ```bash
 tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
+tarae link codex --project-root "$PWD" --link-id codex-backend
 tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 ```
 
@@ -90,6 +92,7 @@ tarae doctor --project-root "$PWD"
 ```text
 .tarae/topa/session_index.jsonl
 .tarae/topa/latest.md
+.tarae/topa/active_sessions.json
 .tarae/topa/runtime/server.json
 .tarae/topa/sessions/<session-id>.jsonl
 .tarae/topa/sessions/<session-id>.md

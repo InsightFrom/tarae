@@ -21,6 +21,12 @@ The extension reads project-local history from `.tarae/topa/` and opens session 
 
 Install Tarae in a workspace and record at least one session so the project contains `.tarae/topa/`.
 
+## Open The Dashboard
+
+Install Tarae from the Visual Studio Marketplace, open a workspace that contains `.tarae/topa/`, then run `Tarae: Open Dashboard` from the Command Palette.
+
+You can also open the Tarae Activity Bar item and use the Dashboard entry from the sidebar.
+
 ## Commands
 
 - `Tarae: Open Dashboard`

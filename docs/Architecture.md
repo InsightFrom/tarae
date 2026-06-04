@@ -102,6 +102,8 @@ flowchart TB
 
 The JSONL file is append-only. Markdown is regenerated after each event from the JSONL source so it remains easy to read and safe to overwrite.
 
+Human activity is recorded under a synthetic `human-YYYY-MM-DD` session because there is no explicit human lifecycle API. When a later AI event is recorded, Tarae finalizes any active human session by appending a synthetic `session_end` event at the AI event timestamp. If more human edits are detected later on the same day, the same human session can become active again.
+
 ## Markdown Projection
 
 Markdown session files are optimized for quick reading. They include:

@@ -6,6 +6,16 @@ The Tarae VS Code extension is a local viewer for project history under `.tarae/
 
 The extension is published on the Visual Studio Marketplace as `insightfrom.tarae`. Source code lives in `packages/vscode-extension`.
 
+## Install From Marketplace
+
+Install the published extension from the Marketplace page or with the VS Code CLI:
+
+```bash
+code --install-extension insightfrom.tarae
+```
+
+Then open a workspace that contains `.tarae/topa/` and run `Tarae: Open Dashboard` from the Command Palette. The same Dashboard is also available from the Tarae Activity Bar sidebar.
+
 ## What It Reads
 
 The sidebar and Dashboard read these project-local files:

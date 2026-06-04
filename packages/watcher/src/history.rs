@@ -141,8 +141,8 @@ impl HistoryStore {
             anyhow::bail!("unsupported event schema: {}", event.schema_version);
         }
 
-        if event.event_type == EventType::SessionStart && event.session_id.is_some() {
-            self.complete_active_human_sessions(event.timestamp)?;
+        if should_finalize_active_human_sessions(event) {
+            self.finalize_active_human_sessions(event.timestamp)?;
         }
 
         let session_key = self.session_key(event);
@@ -662,7 +662,7 @@ impl HistoryStore {
         Ok(latest_by_session.into_values().collect())
     }
 
-    fn complete_active_human_sessions(&self, ended_at: chrono::DateTime<Utc>) -> Result<()> {
+    fn finalize_active_human_sessions(&self, ended_at: chrono::DateTime<Utc>) -> Result<()> {
         for entry in self.latest_index_entries()? {
             if entry.status != "active" || !entry.session_id.starts_with("human-") {
                 continue;
@@ -1077,6 +1077,10 @@ fn yaml_optional(value: Option<&str>) -> String {
     value.map(yaml_string).unwrap_or_else(|| "null".to_string())
 }
 
+fn should_finalize_active_human_sessions(event: &TopaEvent) -> bool {
+    event.actor.actor_type == ActorType::AiAgent && event.event_type != EventType::SessionEnd
+}
+
 fn yaml_string(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
 }
@@ -1209,6 +1213,42 @@ mod tests {
 
         let markdown = store.read_session_markdown("human-2026-01-01").unwrap();
         assert!(markdown.contains("status: \"completed\""));
+        assert!(store
+            .read_session_jsonl("human-2026-01-01")
+            .unwrap()
+            .contains("\"session_end\""));
+    }
+
+    #[test]
+    fn ai_checkpoint_finalizes_active_human_session() {
+        let dir = TempDir::new().unwrap();
+        let store = HistoryStore::open(dir.path()).unwrap();
+        let human_at = Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap();
+
+        store
+            .append_event(&make_human_event_at(human_at, "manual edits"))
+            .unwrap();
+
+        let session_id = Uuid::new_v4();
+        let mut checkpoint = make_event(session_id, EventType::Checkpoint, "checkpoint");
+        checkpoint.timestamp = human_at + chrono::Duration::minutes(10);
+        store.append_event(&checkpoint).unwrap();
+
+        let completed = store.list_sessions(10, Some("completed")).unwrap();
+        let human = completed
+            .iter()
+            .find(|entry| entry.session_id == "human-2026-01-01")
+            .unwrap();
+        assert_eq!(human.status, "completed");
+        assert_eq!(
+            human.ended_at.as_deref(),
+            Some(checkpoint.timestamp.to_rfc3339().as_str())
+        );
+
+        let active = store.list_sessions(10, Some("active")).unwrap();
+        assert!(!active
+            .iter()
+            .any(|entry| entry.session_id == "human-2026-01-01"));
         assert!(store
             .read_session_jsonl("human-2026-01-01")
             .unwrap()

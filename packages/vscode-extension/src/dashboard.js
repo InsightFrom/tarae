@@ -60,6 +60,19 @@ function getDashboardHtml(webview, nonce) {
       opacity: 0.55;
     }
 
+    button.link-button {
+      min-height: 22px;
+      border: 0;
+      padding: 1px 4px;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    button.link-button:hover {
+      color: var(--fg);
+      background: var(--vscode-toolbar-hoverBackground);
+    }
+
     input,
     select {
       width: 100%;
@@ -124,7 +137,7 @@ function getDashboardHtml(webview, nonce) {
 
     .filters {
       display: grid;
-      grid-template-columns: minmax(160px, 2fr) repeat(6, minmax(110px, 1fr)) auto auto;
+      grid-template-columns: minmax(160px, 2fr) repeat(7, minmax(110px, 1fr)) auto auto auto;
       gap: 8px;
       padding: 10px 16px;
       border-bottom: 1px solid var(--border);
@@ -164,10 +177,42 @@ function getDashboardHtml(webview, nonce) {
       text-transform: uppercase;
     }
 
+    .header-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    .tab-button {
+      min-height: 30px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      padding: 5px 10px;
+      background: transparent;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .tab-button.active {
+      border-bottom-color: var(--focus);
+      color: var(--fg);
+      background: var(--vscode-tab-activeBackground);
+    }
+
     .session-list,
     .hit-list,
     .timeline,
-    .file-list {
+    .file-list,
+    .agent-list {
       display: grid;
       gap: 1px;
     }
@@ -280,6 +325,7 @@ function getDashboardHtml(webview, nonce) {
 
     .event,
     .file-row,
+    .agent-row,
     .hit-row {
       display: grid;
       gap: 5px;
@@ -365,6 +411,10 @@ function getDashboardHtml(webview, nonce) {
         border-bottom: 1px solid var(--border);
       }
     }
+
+    [hidden] {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
@@ -392,15 +442,17 @@ function getDashboardHtml(webview, nonce) {
       <label>Tag<input id="filter-tag" type="search" placeholder="#release"></label>
       <label>After<input id="filter-after" type="date"></label>
       <label>Before<input id="filter-before" type="date"></label>
+      <label>Saved<select id="saved-searches"><option value="">Saved or recent</option></select></label>
       <button id="apply-search">Search</button>
+      <button id="save-search" class="secondary">Save Filter</button>
       <button id="clear-search" class="secondary">Clear</button>
     </section>
 
     <main class="layout">
       <aside class="sidebar">
-        <div class="section-header"><span>Sessions</span><span id="session-count">0</span></div>
+        <div class="section-header"><span>Sessions</span><span class="header-actions"><span id="session-count">0</span><button id="toggle-sessions" class="link-button" aria-expanded="true" aria-controls="session-list">Hide</button></span></div>
         <div id="session-list" class="session-list"></div>
-        <div class="section-header"><span>Event Matches</span><span id="hit-count">0</span></div>
+        <div class="section-header"><span>Event Matches</span><span class="header-actions"><span id="hit-count">0</span><button id="toggle-hits" class="link-button" aria-expanded="false" aria-controls="hit-list">Show</button></span></div>
         <div id="hit-list" class="hit-list"></div>
       </aside>
       <section id="detail" class="detail">
@@ -421,6 +473,11 @@ function getDashboardHtml(webview, nonce) {
       searchHits: [],
       lastQuery: '',
       filtersCollapsed: persistedUi.filtersCollapsed !== false,
+      sessionsCollapsed: persistedUi.sessionsCollapsed === true,
+      hitsCollapsed: persistedUi.hitsCollapsed !== false,
+      detailTab: persistedUi.detailTab || 'overview',
+      savedSearches: Array.isArray(persistedUi.savedSearches) ? persistedUi.savedSearches : [],
+      recentSearches: Array.isArray(persistedUi.recentSearches) ? persistedUi.recentSearches : [],
       llm: { provider: 'openai', model: 'gpt-4.1-mini', hasCredentials: false },
       generatedReport: null,
       pending: false
@@ -435,6 +492,9 @@ function getDashboardHtml(webview, nonce) {
       detail: document.getElementById('detail'),
       filterPanel: document.getElementById('search-panel'),
       toggleSearch: document.getElementById('toggle-search'),
+      toggleSessions: document.getElementById('toggle-sessions'),
+      toggleHits: document.getElementById('toggle-hits'),
+      savedSearches: document.getElementById('saved-searches'),
       keyword: document.getElementById('filter-keyword'),
       file: document.getElementById('filter-file'),
       agent: document.getElementById('filter-agent'),
@@ -453,6 +513,8 @@ function getDashboardHtml(webview, nonce) {
         state.activeSessions = message.data.activeSessions || [];
         state.llm = message.llm || state.llm;
         els.projectRoot.textContent = state.projectRoot || 'No workspace folder';
+        renderSearchPresets();
+        applySidebarSectionState();
         renderSessions();
         if (!state.selectedSessionId && state.sessions.length) {
           selectSession(state.sessions[0].session_id);
@@ -465,9 +527,12 @@ function getDashboardHtml(webview, nonce) {
         renderDetail();
       } else if (message.type === 'searchResults') {
         state.searchHits = message.hits || [];
+        state.hitsCollapsed = false;
+        rememberRecentSearch();
         renderSessions();
         renderHits();
         applySearchPanelState();
+        applySidebarSectionState();
       } else if (message.type === 'llmState') {
         state.llm = message.llm || state.llm;
         renderDetail();
@@ -497,9 +562,21 @@ function getDashboardHtml(webview, nonce) {
     document.getElementById('configure').addEventListener('click', () => post('configureLlm'));
     document.getElementById('clear-credentials').addEventListener('click', () => post('clearLlmCredentials'));
     document.getElementById('apply-search').addEventListener('click', () => runSearch());
+    document.getElementById('save-search').addEventListener('click', () => saveCurrentFilter());
     els.toggleSearch.addEventListener('click', () => {
       state.filtersCollapsed = !state.filtersCollapsed;
       applySearchPanelState();
+    });
+    els.toggleSessions.addEventListener('click', () => {
+      state.sessionsCollapsed = !state.sessionsCollapsed;
+      applySidebarSectionState();
+    });
+    els.toggleHits.addEventListener('click', () => {
+      state.hitsCollapsed = !state.hitsCollapsed;
+      applySidebarSectionState();
+    });
+    els.savedSearches.addEventListener('change', () => {
+      applyStoredSearch(els.savedSearches.value);
     });
     document.getElementById('clear-search').addEventListener('click', () => {
       for (const input of [els.keyword, els.file, els.agent, els.link, els.status, els.tag, els.after, els.before]) {
@@ -510,6 +587,8 @@ function getDashboardHtml(webview, nonce) {
       renderSessions();
       renderHits();
       applySearchPanelState();
+      renderSearchPresets();
+      applySidebarSectionState();
     });
 
     els.sessionList.addEventListener('click', (event) => {
@@ -531,7 +610,11 @@ function getDashboardHtml(webview, nonce) {
       if (!action) {
         return;
       }
-      if (action === 'openMarkdown' && state.selectedSessionId) {
+      if (action === 'detailTab') {
+        state.detailTab = event.target.dataset.tab || 'overview';
+        persistUiState();
+        renderDetail();
+      } else if (action === 'openMarkdown' && state.selectedSessionId) {
         post('openSession', { sessionId: state.selectedSessionId });
       } else if (action === 'generateReport' && state.selectedSessionId) {
         state.pending = true;
@@ -558,6 +641,7 @@ function getDashboardHtml(webview, nonce) {
         renderSessions();
         renderHits();
         applySearchPanelState();
+        applySidebarSectionState();
         return;
       }
       post('search', { query: state.lastQuery });
@@ -567,7 +651,17 @@ function getDashboardHtml(webview, nonce) {
       els.filterPanel.hidden = state.filtersCollapsed;
       els.toggleSearch.textContent = searchToggleLabel();
       els.toggleSearch.setAttribute('aria-expanded', String(!state.filtersCollapsed));
-      vscode.setState({ filtersCollapsed: state.filtersCollapsed });
+      persistUiState();
+    }
+
+    function applySidebarSectionState() {
+      els.sessionList.hidden = state.sessionsCollapsed;
+      els.hitList.hidden = state.hitsCollapsed;
+      els.toggleSessions.textContent = state.sessionsCollapsed ? 'Show' : 'Hide';
+      els.toggleHits.textContent = state.hitsCollapsed ? 'Show' : 'Hide';
+      els.toggleSessions.setAttribute('aria-expanded', String(!state.sessionsCollapsed));
+      els.toggleHits.setAttribute('aria-expanded', String(!state.hitsCollapsed));
+      persistUiState();
     }
 
     function searchToggleLabel() {
@@ -578,6 +672,17 @@ function getDashboardHtml(webview, nonce) {
         return 'Show Search (' + state.searchHits.length + ')';
       }
       return 'Show Search';
+    }
+
+    function persistUiState() {
+      vscode.setState({
+        filtersCollapsed: state.filtersCollapsed,
+        sessionsCollapsed: state.sessionsCollapsed,
+        hitsCollapsed: state.hitsCollapsed,
+        detailTab: state.detailTab,
+        savedSearches: state.savedSearches,
+        recentSearches: state.recentSearches
+      });
     }
 
     function buildQuery() {
@@ -591,6 +696,101 @@ function getDashboardHtml(webview, nonce) {
       addToken(tokens, 'after', els.after.value);
       addToken(tokens, 'before', els.before.value);
       return tokens.join(' ');
+    }
+
+    function filterValues() {
+      return {
+        keyword: els.keyword.value,
+        file: els.file.value,
+        agent: els.agent.value,
+        link: els.link.value,
+        status: els.status.value,
+        tag: els.tag.value,
+        after: els.after.value,
+        before: els.before.value
+      };
+    }
+
+    function setFilterValues(values) {
+      values = values || {};
+      els.keyword.value = values.keyword || '';
+      els.file.value = values.file || '';
+      els.agent.value = values.agent || '';
+      els.link.value = values.link || '';
+      els.status.value = values.status || '';
+      els.tag.value = values.tag || '';
+      els.after.value = values.after || '';
+      els.before.value = values.before || '';
+    }
+
+    function saveCurrentFilter() {
+      const query = buildQuery();
+      if (!query) {
+        showNotice('Enter at least one search filter before saving.', true);
+        return;
+      }
+      upsertStoredSearch(state.savedSearches, {
+        id: 'saved:' + Date.now(),
+        label: query,
+        query,
+        values: filterValues()
+      });
+      state.savedSearches = state.savedSearches.slice(0, 12);
+      renderSearchPresets();
+      persistUiState();
+    }
+
+    function rememberRecentSearch() {
+      if (!state.lastQuery) {
+        return;
+      }
+      upsertStoredSearch(state.recentSearches, {
+        id: 'recent:' + Date.now(),
+        label: state.lastQuery,
+        query: state.lastQuery,
+        values: filterValues()
+      });
+      state.recentSearches = state.recentSearches.slice(0, 8);
+      renderSearchPresets();
+      persistUiState();
+    }
+
+    function upsertStoredSearch(list, item) {
+      const existing = list.findIndex((entry) => entry.query === item.query);
+      if (existing >= 0) {
+        list.splice(existing, 1);
+      }
+      list.unshift(item);
+    }
+
+    function renderSearchPresets() {
+      const groups = [];
+      if (state.savedSearches.length) {
+        groups.push('<optgroup label="Saved">' + state.savedSearches.map(searchOption).join('') + '</optgroup>');
+      }
+      if (state.recentSearches.length) {
+        groups.push('<optgroup label="Recent">' + state.recentSearches.map(searchOption).join('') + '</optgroup>');
+      }
+      els.savedSearches.innerHTML = '<option value="">Saved or recent</option>' + groups.join('');
+    }
+
+    function searchOption(item) {
+      return '<option value="' + escapeAttr(item.id) + '">' + escapeHtml(item.label || item.query) + '</option>';
+    }
+
+    function applyStoredSearch(id) {
+      if (!id) {
+        return;
+      }
+      const item = state.savedSearches.concat(state.recentSearches).find((entry) => entry.id === id);
+      if (!item) {
+        return;
+      }
+      setFilterValues(item.values);
+      state.filtersCollapsed = false;
+      applySearchPanelState();
+      runSearch();
+      els.savedSearches.value = '';
     }
 
     function addToken(tokens, prefix, value) {
@@ -672,6 +872,7 @@ function getDashboardHtml(webview, nonce) {
       const reportActions = report
         ? '<button data-action="saveReport"' + (report.savedPath ? ' disabled' : '') + '>Save Report</button>'
         : '';
+      const tabContext = { detail, scope, credentials, pending, saved, preview };
 
       els.detail.innerHTML = '<div class="detail-grid">' +
         '<section class="band">' +
@@ -680,13 +881,55 @@ function getDashboardHtml(webview, nonce) {
           '<div class="meta">' + metaPill('session', entry.session_id) + metaPill('agent', entry.agent_name) + metaPill('link', entry.link_id) + metaPill('updated', formatDate(entry.updated_at)) + '</div>' +
           '<div class="actions"><button data-action="openMarkdown" class="secondary">Open Markdown</button><button data-action="generateReport" ' + (state.pending ? 'disabled' : '') + '>Generate Report</button>' + reportActions + '</div>' +
         '</section>' +
-        renderStats(detail, scope) +
-        renderScope(scope, credentials) +
-        pending + saved +
-        (preview ? '<section class="band"><h3>Report Preview</h3>' + preview + '</section>' : '') +
-        renderFiles(detail.fileChanges || []) +
-        renderTimeline(detail.events || []) +
+        renderDetailTabs(detail) +
+        renderActiveDetailTab(tabContext) +
       '</div>';
+    }
+
+    function renderDetailTabs(detail) {
+      const files = (detail.fileChanges || []).length;
+      const events = (detail.events || []).length;
+      const agents = summarizeAgents(detail.events || []).length;
+      const tabs = [
+        ['overview', 'Overview'],
+        ['timeline', 'Timeline ' + events],
+        ['files', 'Files ' + files],
+        ['agents', 'Agents ' + agents],
+        ['report', 'Report']
+      ];
+      if (!tabs.some((tab) => tab[0] === state.detailTab)) {
+        state.detailTab = 'overview';
+      }
+      return '<div class="tabs" role="tablist">' + tabs.map(([id, label]) => (
+        '<button class="tab-button' + (state.detailTab === id ? ' active' : '') + '" data-action="detailTab" data-tab="' + escapeAttr(id) + '">' + escapeHtml(label) + '</button>'
+      )).join('') + '</div>';
+    }
+
+    function renderActiveDetailTab(context) {
+      if (state.detailTab === 'timeline') {
+        return renderTimeline(context.detail.events || []);
+      }
+      if (state.detailTab === 'files') {
+        return renderFiles(context.detail.fileChanges || []);
+      }
+      if (state.detailTab === 'agents') {
+        return renderAgents(context.detail.events || []);
+      }
+      if (state.detailTab === 'report') {
+        return renderReportTab(context);
+      }
+      return renderOverview(context);
+    }
+
+    function renderOverview(context) {
+      return renderStats(context.detail, context.scope) +
+        '<section class="band"><h3>Session Summary</h3><p class="summary">' + escapeHtml(context.detail.entry.last_summary || 'No summary recorded.') + '</p></section>';
+    }
+
+    function renderReportTab(context) {
+      return context.pending + context.saved +
+        renderScope(context.scope, context.credentials) +
+        (context.preview ? '<section class="band"><h3>Report Preview</h3>' + context.preview + '</section>' : '');
     }
 
     function renderStats(detail, scope) {
@@ -739,6 +982,43 @@ function getDashboardHtml(webview, nonce) {
       }).join('') + '</div></section>';
     }
 
+    function renderAgents(events) {
+      const rows = summarizeAgents(events);
+      if (!rows.length) {
+        return '<section class="band"><h3>Agents</h3><div class="empty">No agent attribution recorded.</div></section>';
+      }
+      return '<section class="band"><h3>Agents</h3><div class="agent-list">' + rows.map((row) => (
+        '<div class="agent-row">' +
+          '<div class="event-title"><strong>' + escapeHtml(row.label) + '</strong><span>' + escapeHtml(row.lastSeen ? formatDate(row.lastSeen) : '') + '</span></div>' +
+          '<div class="meta">' + metaPill('events', row.events) + metaPill('files', row.files) + metaPill('link', row.link) + metaPill('attribution', row.attribution) + '</div>' +
+        '</div>'
+      )).join('') + '</div></section>';
+    }
+
+    function summarizeAgents(events) {
+      const rows = new Map();
+      for (const event of events) {
+        const actor = event.actor || {};
+        const label = actor.agent_name || actor.type || 'unknown';
+        const link = actor.link_id || '';
+        const attribution = event.attribution && event.attribution.status ? event.attribution.status : '';
+        const key = label + '\\n' + link + '\\n' + attribution;
+        const current = rows.get(key) || {
+          label,
+          link,
+          attribution,
+          events: 0,
+          files: 0,
+          lastSeen: ''
+        };
+        current.events += 1;
+        current.files += (event.file_changes || []).length;
+        current.lastSeen = event.timestamp || current.lastSeen;
+        rows.set(key, current);
+      }
+      return Array.from(rows.values()).sort((a, b) => b.events - a.events || a.label.localeCompare(b.label));
+    }
+
     function stat(value, label) {
       return '<div class="stat"><strong>' + escapeHtml(String(value)) + '</strong><span>' + escapeHtml(label) + '</span></div>';
     }
@@ -785,6 +1065,8 @@ function getDashboardHtml(webview, nonce) {
     }
 
     applySearchPanelState();
+    applySidebarSectionState();
+    renderSearchPresets();
     post('loadDashboard', { selectedSessionId: state.selectedSessionId });
   </script>
 </body>

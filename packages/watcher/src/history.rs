@@ -141,7 +141,11 @@ impl HistoryStore {
             anyhow::bail!("unsupported event schema: {}", event.schema_version);
         }
 
-        if should_finalize_active_human_sessions(event) {
+        if event.event_type == EventType::SessionStart
+            && event.actor.actor_type == ActorType::AiAgent
+        {
+            self.repair_before_session_start(event.timestamp)?;
+        } else if should_finalize_active_human_sessions(event) {
             self.finalize_active_human_sessions(event.timestamp)?;
         }
 
@@ -682,6 +686,13 @@ impl HistoryStore {
         }
 
         Ok(())
+    }
+
+    fn repair_before_session_start(&self, timestamp: chrono::DateTime<Utc>) -> Result<()> {
+        // Keep the start path lightweight: close only synthetic human sessions whose
+        // lifecycle has no explicit human end signal. Full history replay stays out of
+        // the hot path.
+        self.finalize_active_human_sessions(timestamp)
     }
 
     fn build_index_entry(&self, session_id: &str, events: &[TopaEvent]) -> SessionIndexEntry {

@@ -1,0 +1,51 @@
+name: VS Code Extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to the VS Code Marketplace"
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  package:
+    name: Package VSIX
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check extension sources
+        working-directory: packages/vscode-extension
+        run: npm run check
+      - name: Package VSIX
+        working-directory: packages/vscode-extension
+        run: npm run vsix
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarae-vscode-extension
+          path: packages/vscode-extension/*.vsix
+
+  publish:
+    name: Publish to Marketplace
+    needs: package
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-latest
+    environment: vscode-marketplace
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check extension sources
+        working-directory: packages/vscode-extension
+        run: npm run check
+      - name: Publish extension
+        working-directory: packages/vscode-extension
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npm run publish

@@ -51,7 +51,8 @@ jobs:
         with:
           node-version: 20
       - name: Syntax check
-        run: node --check packages/vscode-extension/src/extension.js
+        working-directory: packages/vscode-extension
+        run: npm run check
 
   install-script:
     name: Installer Smoke

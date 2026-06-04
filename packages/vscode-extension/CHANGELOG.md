@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.6
+
+- Add `Tarae: Open Dashboard` with a serverless VS Code Webview for session timelines, filters, file changes, attribution, and report scope.
+- Add OpenAI API key configuration through VS Code SecretStorage.
+- Add LLM session report preview and explicit save flow under `.tarae/topa/reports/<session-id>/`.
+- Restart the current workspace's `topa` daemon after extension updates so upgraded extension behavior applies without affecting other projects.
+- Add Marketplace install links, packaging scripts, and GitHub Actions support for manual VS Code Marketplace publishing.
+- Add a 128x128 PNG Marketplace icon.
+- Add report-related commands and extension settings.
+
 ## 0.1.5
 
 - Add `link:` / `link_id:` search filters for multi-agent Tarae history.

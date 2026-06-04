@@ -71,13 +71,13 @@ tarae --version
 Upgrade the project-local install and restart the AI app so it launches fresh MCP bridge processes:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.5 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.6 --project-root "$PWD"
 ```
 
 If your installed CLI does not have `upgrade` yet, rerun the installer for the target release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.5 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.6 bash
 ```
 
 For unreleased branch testing, build `topa` from the selected source ref:
@@ -139,7 +139,15 @@ The JSONL file is the canonical event log using `topa-event-v1`. The Markdown fi
 
 ## VS Code Extension
 
-The read-only VS Code extension in `packages/vscode-extension` shows local Tarae history from `.tarae/topa/` in a sidebar. It can open the latest session, list sessions, search history, and open session Markdown without writing to project history.
+[![Install Tarae in VS Code](https://img.shields.io/badge/VS%20Code-Install%20Tarae-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=insightfrom.tarae)
+
+The VS Code extension in `packages/vscode-extension` shows local Tarae history from `.tarae/topa/` in a sidebar and Dashboard Webview. It can open the latest session, list sessions, search event history, inspect session timelines, and generate optional LLM session reports.
+
+By default the extension only reads project history. If you configure an OpenAI API key, Tarae stores it in VS Code SecretStorage and uses it from the extension host; the Webview never receives the key. Reports are saved only when you explicitly choose to save them, under `.tarae/topa/reports/<session-id>/`.
+
+After a VS Code extension version update, Tarae automatically restarts only the current workspace's project daemon by requesting `topa shutdown --project-root <workspace>`. Other project daemons are not affected.
+
+The Marketplace install link becomes active after the first `insightfrom.tarae` publish.
 
 Run it from source with the VS Code Extension Development Host, or package it as a local `.vsix` for installation. See [VS Code Extension](docs/guide/vscode-extension.md).
 
@@ -167,7 +175,7 @@ tarae link codex --project-root "$PWD"
 tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 tarae link codex --project-root "$PWD" --fixed-project-root
 tarae verify --agent codex --project-root "$PWD"
-tarae upgrade --ref v0.1.5 --project-root "$PWD"
+tarae upgrade --ref v0.1.6 --project-root "$PWD"
 tarae doctor --project-root "$PWD"
 tarae status --project-root "$PWD"
 tarae unlink codex
@@ -195,7 +203,7 @@ packages/
 ├── watcher/       # Rust topa binary and MCP server
 ├── cli/           # Node.js tarae CLI wrapper
 ├── tarae-plugin/  # Agent-facing skill metadata
-└── vscode-extension/ # Read-only VS Code history viewer
+└── vscode-extension/ # VS Code history viewer and optional report UI
 docs/
 ├── guide/installation.md
 └── i18n/

@@ -19,6 +19,7 @@ flowchart TB
         Active["active_session.json / active_sessions.json"]
         Jsonl["sessions/<session-id>.jsonl"]
         Md["sessions/<session-id>.md"]
+        Reports["reports/<session-id>/*.md"]
         Index["session_index.jsonl"]
         Latest["latest.md"]
         Runtime["runtime/server.json"]
@@ -27,6 +28,7 @@ flowchart TB
     History --> Active
     History --> Jsonl
     History --> Md
+    History --> Reports
     History --> Index
     History --> Latest
     History --> Runtime
@@ -48,6 +50,7 @@ flowchart TB
 5. The daemon keeps active sessions by project plus MCP link identity, then appends canonical JSONL events under `.tarae/topa/sessions/`.
 6. The daemon regenerates a Markdown projection for the same session and updates `latest.md`.
 7. Search tools and the VS Code extension scan `session_index.jsonl` and session JSONL files when an agent asks for prior context.
+8. The VS Code extension can render the same local history in a serverless Webview and, when explicitly requested, save generated report Markdown under `reports/`.
 
 ## File Layout
 
@@ -59,6 +62,9 @@ flowchart TB
     ├── latest.md
     ├── runtime/
     │   └── server.json
+    ├── reports/
+    │   └── <session-id>/
+    │       └── <timestamp>.md
     ├── session_index.jsonl
     └── sessions/
         ├── <session-id>.jsonl
@@ -71,6 +77,7 @@ flowchart TB
 - `session_index.jsonl` is a compact search and listing index.
 - `active_sessions.json` tracks concurrently open lifecycle sessions by MCP link id. `active_session.json` is kept only for single-session compatibility.
 - `runtime/server.json` tracks the local project daemon endpoint, pid, version, heartbeat, and loopback RPC token metadata.
+- `reports/<session-id>/*.md` stores optional VS Code-generated session reports. Reports are explicit user outputs and are not canonical event history.
 
 ## Event Model
 

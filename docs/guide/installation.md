@@ -83,13 +83,13 @@ tarae --version
 Upgrade to a released version:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.5 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.6 --project-root "$PWD"
 ```
 
 Or rerun the installer for users who installed before the `upgrade` command existed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.5 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.6 bash
 ```
 
 For unreleased branch testing, build `topa` from source instead of downloading the latest release asset:

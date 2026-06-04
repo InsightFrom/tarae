@@ -2,11 +2,41 @@ const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
 
+const { getDashboardHtml } = require('./dashboard');
+const {
+  compactDescription,
+  getSessionDetail,
+  readDashboardData,
+  readHistory,
+  searchHistory,
+  sessionTooltip
+} = require('./history');
+const {
+  MissingCredentialsError,
+  clearLlmCredentials,
+  configureLlmProvider,
+  generateSessionReport,
+  getLlmState
+} = require('./llmProvider');
+const {
+  buildReportContext,
+  saveReport
+} = require('./reports');
+const {
+  restartProjectDaemonAfterUpdate,
+  restartProjectDaemonCommand
+} = require('./topaDaemon');
+
 const TARAE_SCHEME = 'tarae-session';
 
+let dashboardPanel = null;
+let pendingDashboardSessionId = '';
+const reportCache = new Map();
+
 function activate(context) {
-  const provider = new TaraeSessionsProvider();
+  const provider = new TaraeSessionsProvider(() => refreshDashboard(context));
   const contentProvider = new TaraeMarkdownProvider();
+  restartProjectDaemonAfterExtensionUpdate(context, provider);
 
   context.subscriptions.push(
     provider,
@@ -14,19 +44,51 @@ function activate(context) {
     vscode.workspace.registerTextDocumentContentProvider(TARAE_SCHEME, contentProvider),
     vscode.workspace.onDidChangeWorkspaceFolders(() => provider.refresh()),
     vscode.commands.registerCommand('tarae.refreshSessions', () => provider.refresh()),
+    vscode.commands.registerCommand('tarae.openDashboard', (item) => openDashboard(context, provider, item)),
     vscode.commands.registerCommand('tarae.openLatestSession', () => openLatestSession(provider)),
     vscode.commands.registerCommand('tarae.listSessions', () => listSessions(provider)),
-    vscode.commands.registerCommand('tarae.searchHistory', () => searchHistory(provider)),
-    vscode.commands.registerCommand('tarae.openSessionMarkdown', (item) => openSessionMarkdown(provider, item))
+    vscode.commands.registerCommand('tarae.searchHistory', () => searchHistoryCommand(provider)),
+    vscode.commands.registerCommand('tarae.openSessionMarkdown', (item) => openSessionMarkdown(provider, item)),
+    vscode.commands.registerCommand('tarae.configureLlmProvider', async () => {
+      await configureLlmProvider(context);
+      await sendLlmState(context);
+    }),
+    vscode.commands.registerCommand('tarae.clearLlmCredentials', async () => {
+      await clearLlmCredentials(context);
+      await sendLlmState(context);
+    }),
+    vscode.commands.registerCommand('tarae.generateSessionReport', (item) => generateSessionReportCommand(context, provider, item)),
+    vscode.commands.registerCommand('tarae.restartTopaDaemon', async () => {
+      await restartProjectDaemonCommand(getProjectRoot());
+      provider.refresh();
+    })
   );
 }
 
 function deactivate() {}
 
+function restartProjectDaemonAfterExtensionUpdate(context, provider) {
+  restartProjectDaemonAfterUpdate(context, getProjectRoot())
+    .then((result) => {
+      if (!result || !result.restarted) {
+        return;
+      }
+      provider.refresh();
+      vscode.window.showInformationMessage(
+        'Tarae extension updated. Restarted the topa daemon for this workspace.'
+      );
+    })
+    .catch((error) => {
+      const message = error && error.message ? error.message : String(error);
+      vscode.window.showWarningMessage(`Tarae extension updated, but topa daemon restart failed: ${message}`);
+    });
+}
+
 class TaraeSessionsProvider {
-  constructor() {
+  constructor(onHistoryChanged) {
     this._onDidChangeTreeData = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+    this.onHistoryChanged = onHistoryChanged;
     this.watchers = [];
     this.resetWatchers();
   }
@@ -34,6 +96,9 @@ class TaraeSessionsProvider {
   refresh() {
     this.resetWatchers();
     this._onDidChangeTreeData.fire();
+    if (this.onHistoryChanged) {
+      this.onHistoryChanged();
+    }
   }
 
   getTreeItem(item) {
@@ -88,10 +153,17 @@ class TaraeSessionsProvider {
       const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(folder, '.tarae/topa/**')
       );
-      watcher.onDidCreate(() => this._onDidChangeTreeData.fire());
-      watcher.onDidChange(() => this._onDidChangeTreeData.fire());
-      watcher.onDidDelete(() => this._onDidChangeTreeData.fire());
+      watcher.onDidCreate(() => this.notifyHistoryChanged());
+      watcher.onDidChange(() => this.notifyHistoryChanged());
+      watcher.onDidDelete(() => this.notifyHistoryChanged());
       this.watchers.push(watcher);
+    }
+  }
+
+  notifyHistoryChanged() {
+    this._onDidChangeTreeData.fire();
+    if (this.onHistoryChanged) {
+      this.onHistoryChanged();
     }
   }
 
@@ -150,6 +222,198 @@ class TaraeMarkdownProvider {
   }
 }
 
+async function openDashboard(context, provider, item) {
+  const entry = item && item.entry ? item.entry : item;
+  pendingDashboardSessionId = entry && entry.session_id ? entry.session_id : pendingDashboardSessionId;
+
+  if (dashboardPanel) {
+    dashboardPanel.reveal(vscode.ViewColumn.One);
+    await sendDashboardData(context);
+    return;
+  }
+
+  dashboardPanel = vscode.window.createWebviewPanel(
+    'tarae.dashboard',
+    'Tarae Dashboard',
+    vscode.ViewColumn.One,
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true
+    }
+  );
+  dashboardPanel.webview.html = getDashboardHtml(dashboardPanel.webview, getNonce());
+
+  dashboardPanel.onDidDispose(() => {
+    dashboardPanel = null;
+    pendingDashboardSessionId = '';
+  });
+
+  dashboardPanel.webview.onDidReceiveMessage((message) => {
+    handleDashboardMessage(context, provider, message).catch((error) => {
+      postDashboardError(error.message || String(error));
+    });
+  });
+}
+
+async function handleDashboardMessage(context, provider, message) {
+  switch (message.type) {
+    case 'loadDashboard':
+      await sendDashboardData(context, message.selectedSessionId || '');
+      break;
+    case 'loadSession':
+      await sendSessionDetail(message.sessionId);
+      break;
+    case 'search':
+      await sendSearchResults(message.query);
+      break;
+    case 'openSession':
+      await openSessionMarkdown(provider, { session_id: message.sessionId });
+      break;
+    case 'configureLlm':
+      await configureLlmProvider(context);
+      await sendLlmState(context);
+      break;
+    case 'clearLlmCredentials':
+      await clearLlmCredentials(context);
+      await sendLlmState(context);
+      break;
+    case 'restartTopaDaemon':
+      await restartProjectDaemonCommand(getProjectRoot());
+      provider.refresh();
+      break;
+    case 'generateReport':
+      await generateDashboardReport(context, message.sessionId);
+      break;
+    case 'saveReport':
+      await saveDashboardReport(message.reportId);
+      break;
+    default:
+      break;
+  }
+}
+
+async function sendDashboardData(context, preferredSessionId = '') {
+  if (!dashboardPanel) {
+    return;
+  }
+
+  const root = getProjectRoot();
+  const data = root
+    ? readDashboardData(root)
+    : { projectRoot: '', latestMarkdownPath: '', activeSessions: [], sessions: [] };
+  dashboardPanel.webview.postMessage({
+    type: 'dashboardData',
+    data,
+    llm: await getLlmState(context)
+  });
+
+  const shouldAutoSelect = preferredSessionId !== null;
+  const sessionId = pendingDashboardSessionId
+    || preferredSessionId
+    || (shouldAutoSelect && data.sessions[0] && data.sessions[0].session_id);
+  pendingDashboardSessionId = '';
+  if (sessionId) {
+    await sendSessionDetail(sessionId);
+  }
+}
+
+async function sendSessionDetail(sessionId) {
+  if (!dashboardPanel || !sessionId) {
+    return;
+  }
+  const root = getProjectRoot();
+  if (!root) {
+    postDashboardError('Open a workspace folder to view Tarae history.');
+    return;
+  }
+
+  const detail = getSessionDetail(root, sessionId);
+  if (!detail) {
+    postDashboardError(`Tarae session not found: ${sessionId}`);
+    return;
+  }
+  dashboardPanel.webview.postMessage({ type: 'sessionDetail', detail });
+}
+
+async function sendSearchResults(query) {
+  if (!dashboardPanel) {
+    return;
+  }
+  const root = getProjectRoot();
+  if (!root) {
+    dashboardPanel.webview.postMessage({ type: 'searchResults', hits: [] });
+    return;
+  }
+  dashboardPanel.webview.postMessage({
+    type: 'searchResults',
+    hits: searchHistory(root, query || '').slice(0, 200)
+  });
+}
+
+async function sendLlmState(context) {
+  if (!dashboardPanel) {
+    return;
+  }
+  dashboardPanel.webview.postMessage({
+    type: 'llmState',
+    llm: await getLlmState(context)
+  });
+}
+
+async function generateDashboardReport(context, sessionId) {
+  if (!dashboardPanel) {
+    return;
+  }
+  const root = getProjectRoot();
+  if (!root) {
+    postDashboardError('Open a workspace folder to generate a Tarae report.');
+    return;
+  }
+
+  try {
+    const reportContext = buildReportContext(root, sessionId);
+    const result = await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: 'Generating Tarae session report',
+      cancellable: false
+    }, () => generateSessionReport(context, reportContext));
+    const reportId = createReportId(sessionId);
+    const cachedReport = {
+      ...result,
+      context: reportContext
+    };
+    reportCache.set(reportId, cachedReport);
+
+    let savedPath = '';
+    if (vscode.workspace.getConfiguration().get('tarae.reports.autoSave', false)) {
+      savedPath = saveReport(root, cachedReport);
+    }
+
+    dashboardPanel.webview.postMessage({
+      type: 'reportGenerated',
+      reportId,
+      markdown: result.markdown,
+      savedPath
+    });
+  } catch (error) {
+    await handleReportError(context, error);
+  }
+}
+
+async function saveDashboardReport(reportId) {
+  if (!dashboardPanel) {
+    return;
+  }
+  const root = getProjectRoot();
+  const report = reportCache.get(reportId);
+  if (!root || !report) {
+    postDashboardError('No generated report is available to save.');
+    return;
+  }
+  const reportPath = saveReport(root, report);
+  dashboardPanel.webview.postMessage({ type: 'reportSaved', path: reportPath });
+}
+
 async function openLatestSession(provider) {
   const latestPath = provider.latestMarkdownPath();
   if (!latestPath) {
@@ -166,7 +430,7 @@ async function listSessions(provider) {
   }
 }
 
-async function searchHistory(provider) {
+async function searchHistoryCommand(provider) {
   const query = await vscode.window.showInputBox({
     title: 'Search Tarae History',
     prompt: 'Search JSONL events. Filters: type:checkpoint file:src agent:codex link:codex-main tag:#release after:2026-05-01 before:2026-05-28.',
@@ -176,41 +440,94 @@ async function searchHistory(provider) {
     return;
   }
 
-  const criteria = parseSearchQuery(query);
-  const hits = [];
-  for (const entry of provider.sessions()) {
-    for (const event of readSessionEvents(entry)) {
-      const match = matchSearchEvent(entry, event, criteria);
-      if (!match.ok) {
-        continue;
-      }
-      hits.push({
-        label: eventQuickPickLabel(event),
-        description: entry.objective || entry.session_id,
-        detail: match.detail,
-        entry,
-        event
-      });
-    }
-  }
-
+  const root = getProjectRoot();
+  const hits = root ? searchHistory(root, query) : [];
   if (hits.length === 0) {
     vscode.window.showInformationMessage(`No Tarae history matches "${query}".`);
     return;
   }
 
-  hits.sort((a, b) => eventSortTimestamp(b.event) - eventSortTimestamp(a.event));
-  const picked = await vscode.window.showQuickPick(hits, {
-    title: 'Tarae: Search History',
-    placeHolder: 'Open a matching session Markdown file'
-  });
+  const picked = await vscode.window.showQuickPick(
+    hits.map((hit) => ({
+      label: hit.label,
+      description: hit.description,
+      detail: hit.detail,
+      entry: provider.sessions().find((session) => session.session_id === hit.session_id) || hit.entry
+    })),
+    {
+      title: 'Tarae: Search History',
+      placeHolder: 'Open a matching session Markdown file'
+    }
+  );
   if (picked) {
     await openSessionMarkdown(provider, picked.entry);
   }
 }
 
+async function generateSessionReportCommand(context, provider, item) {
+  const root = getProjectRoot();
+  if (!root) {
+    vscode.window.showInformationMessage('Open a workspace folder to generate a Tarae report.');
+    return;
+  }
+
+  const entry = item && item.entry
+    ? item.entry
+    : item && item.session_id
+      ? item
+      : await pickSessionEntry(provider);
+  if (!entry) {
+    return;
+  }
+
+  const reportContext = buildReportContext(root, entry.session_id);
+  const scope = reportContext.scope;
+  const confirmed = await vscode.window.showInformationMessage(
+    `Generate report for ${entry.objective || entry.session_id}?`,
+    {
+      modal: true,
+      detail: [
+        `Includes ${scope.event_count} events, ${scope.file_count} file records, ${scope.issue_count} issues, and rendered session Markdown.`,
+        'Excludes API keys, raw project file contents, and full raw git diffs.'
+      ].join('\n')
+    },
+    'Generate Report'
+  );
+  if (confirmed !== 'Generate Report') {
+    return;
+  }
+
+  try {
+    const result = await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: 'Generating Tarae session report',
+      cancellable: false
+    }, () => generateSessionReport(context, reportContext));
+    const document = await vscode.workspace.openTextDocument({
+      language: 'markdown',
+      content: result.markdown
+    });
+    await vscode.window.showTextDocument(document, { preview: false });
+
+    const shouldSave = await vscode.window.showInformationMessage(
+      'Tarae report preview opened.',
+      'Save Report'
+    );
+    if (shouldSave === 'Save Report') {
+      const reportPath = saveReport(root, { ...result, context: reportContext });
+      vscode.window.showInformationMessage(`Tarae report saved: ${reportPath}`);
+    }
+  } catch (error) {
+    await handleReportError(context, error);
+  }
+}
+
 async function openSessionMarkdown(provider, item) {
-  const entry = item && item.entry ? item.entry : item;
+  const entry = item && item.entry
+    ? item.entry
+    : item && item.session_id
+      ? item
+      : null;
   if (!entry || !entry.session_id) {
     const picked = await pickSession(provider.sessions());
     if (!picked) {
@@ -220,11 +537,16 @@ async function openSessionMarkdown(provider, item) {
     return;
   }
 
-  if (!entry.markdownPath || !fs.existsSync(entry.markdownPath)) {
+  const root = getProjectRoot();
+  const session = root
+    ? readHistory(root).sessions.find((candidate) => candidate.session_id === entry.session_id)
+    : entry;
+  const markdownPath = session && session.markdownPath;
+  if (!markdownPath || !fs.existsSync(markdownPath)) {
     vscode.window.showErrorMessage(`Tarae session Markdown not found for ${entry.session_id}.`);
     return;
   }
-  await openReadonlyMarkdown(entry.markdownPath);
+  await openReadonlyMarkdown(markdownPath);
 }
 
 async function pickSession(sessions) {
@@ -246,6 +568,11 @@ async function pickSession(sessions) {
   );
 }
 
+async function pickSessionEntry(provider) {
+  const picked = await pickSession(provider.sessions());
+  return picked ? picked.entry : null;
+}
+
 async function openReadonlyMarkdown(filePath) {
   const uri = encodeTaraeUri(filePath);
   const document = await vscode.workspace.openTextDocument(uri);
@@ -255,105 +582,40 @@ async function openReadonlyMarkdown(filePath) {
   await vscode.window.showTextDocument(markdownDocument, { preview: false });
 }
 
-function readHistory(projectRoot) {
-  const topaDir = path.join(projectRoot, '.tarae', 'topa');
-  const sessionsDir = path.join(topaDir, 'sessions');
-  const latestMarkdownPath = existingFile(path.join(topaDir, 'latest.md'));
-  const sessionsById = new Map();
-
-  for (const entry of readIndex(path.join(topaDir, 'session_index.jsonl'))) {
-    sessionsById.set(entry.session_id, normalizeSessionEntry(entry, sessionsDir));
-  }
-
-  if (fs.existsSync(sessionsDir)) {
-    for (const name of fs.readdirSync(sessionsDir)) {
-      if (!name.endsWith('.md')) {
-        continue;
-      }
-      const sessionId = name.slice(0, -'.md'.length);
-      if (!sessionsById.has(sessionId)) {
-        sessionsById.set(sessionId, normalizeSessionEntry({ session_id: sessionId }, sessionsDir));
-      }
+async function handleReportError(context, error) {
+  if (error instanceof MissingCredentialsError || error.code === 'missingCredentials') {
+    const choice = await vscode.window.showWarningMessage(
+      'Tarae LLM credentials are not configured.',
+      'Configure LLM'
+    );
+    if (choice === 'Configure LLM') {
+      await configureLlmProvider(context);
+      await sendLlmState(context);
     }
+    postDashboardError('Configure an OpenAI API key before generating a report.');
+    return;
   }
 
-  const sessions = Array.from(sessionsById.values())
-    .filter((entry) => entry.session_id)
-    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-
-  return {
-    latestMarkdownPath,
-    sessions
-  };
+  const message = error && error.message ? error.message : String(error);
+  vscode.window.showErrorMessage(message);
+  postDashboardError(message);
 }
 
-function readIndex(indexPath) {
-  const entries = [];
-  const text = readOptional(indexPath);
-  if (!text) {
-    return entries;
+function postDashboardError(message) {
+  if (!dashboardPanel) {
+    return;
   }
-
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    try {
-      const entry = JSON.parse(trimmed);
-      if (entry && entry.session_id) {
-        entries.push(entry);
-      }
-    } catch {
-      // Ignore partially written or invalid index lines.
-    }
-  }
-  return entries;
+  dashboardPanel.webview.postMessage({
+    type: 'error',
+    message
+  });
 }
 
-function readSessionEvents(entry) {
-  const events = [];
-  const text = readOptional(entry.jsonlPath);
-  if (!text) {
-    return events;
+function refreshDashboard(context) {
+  if (!dashboardPanel) {
+    return;
   }
-
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    try {
-      const event = JSON.parse(trimmed);
-      if (event && event.event_id) {
-        events.push(event);
-      }
-    } catch {
-      // Ignore partially written or invalid JSONL lines.
-    }
-  }
-
-  return events;
-}
-
-function normalizeSessionEntry(entry, sessionsDir) {
-  const sessionId = entry.session_id;
-  return {
-    schema_version: entry.schema_version || '',
-    session_id: sessionId,
-    objective: entry.objective || '',
-    agent_name: entry.agent_name || '',
-    link_id: entry.link_id || '',
-    status: entry.status || 'unknown',
-    started_at: entry.started_at || '',
-    ended_at: entry.ended_at || '',
-    tags: Array.isArray(entry.tags) ? entry.tags : [],
-    updated_at: entry.updated_at || '',
-    event_count: Number(entry.event_count || 0),
-    last_summary: entry.last_summary || '',
-    markdownPath: path.join(sessionsDir, `${sessionId}.md`),
-    jsonlPath: path.join(sessionsDir, `${sessionId}.jsonl`)
-  };
+  sendDashboardData(context, null).catch((error) => postDashboardError(error.message || String(error)));
 }
 
 function getProjectRoot() {
@@ -362,332 +624,6 @@ function getProjectRoot() {
     return null;
   }
   return folders[0].uri.fsPath;
-}
-
-function existingFile(filePath) {
-  return fs.existsSync(filePath) ? filePath : null;
-}
-
-function readOptional(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) {
-    return '';
-  }
-  return fs.readFileSync(filePath, 'utf8');
-}
-
-function compactDescription(entry) {
-  const parts = [];
-  if (entry.status) {
-    parts.push(entry.status);
-  }
-  if (entry.updated_at) {
-    parts.push(formatTimestamp(entry.updated_at));
-  }
-  if (entry.event_count) {
-    parts.push(`${entry.event_count} events`);
-  }
-  return parts.join(' - ');
-}
-
-function sessionTooltip(entry) {
-  return [
-    entry.objective,
-    `Session: ${entry.session_id}`,
-    entry.agent_name ? `Agent: ${entry.agent_name}` : '',
-    entry.link_id ? `Link: ${entry.link_id}` : '',
-    entry.status ? `Status: ${entry.status}` : '',
-    entry.updated_at ? `Updated: ${entry.updated_at}` : '',
-    entry.last_summary ? `Last summary: ${entry.last_summary}` : ''
-  ].filter(Boolean).join('\n');
-}
-
-function searchableText(entry) {
-  return [
-    entry.session_id,
-    entry.objective,
-    entry.agent_name,
-    entry.link_id,
-    entry.status,
-    entry.last_summary,
-    ...entry.tags
-  ].filter(Boolean).join('\n');
-}
-
-function parseSearchQuery(input) {
-  const criteria = {
-    terms: [],
-    eventTypes: [],
-    filePaths: [],
-    agents: [],
-    links: [],
-    tags: [],
-    sessions: [],
-    statuses: [],
-    after: null,
-    before: null
-  };
-
-  for (const token of tokenizeSearchInput(input)) {
-    const separator = token.indexOf(':');
-    if (separator <= 0) {
-      criteria.terms.push(token.toLowerCase());
-      continue;
-    }
-
-    const key = token.slice(0, separator).toLowerCase();
-    const value = token.slice(separator + 1);
-    if (!value) {
-      continue;
-    }
-
-    switch (key) {
-      case 'type':
-      case 'event':
-      case 'event_type':
-        criteria.eventTypes.push(value.toLowerCase());
-        break;
-      case 'file':
-      case 'path':
-        criteria.filePaths.push(value.toLowerCase());
-        break;
-      case 'agent':
-      case 'actor':
-        criteria.agents.push(value.toLowerCase());
-        break;
-      case 'link':
-      case 'link_id':
-        criteria.links.push(value.toLowerCase());
-        break;
-      case 'tag':
-        criteria.tags.push(value.toLowerCase());
-        break;
-      case 'session':
-      case 'session_id':
-        criteria.sessions.push(value.toLowerCase());
-        break;
-      case 'status':
-        criteria.statuses.push(value.toLowerCase());
-        break;
-      case 'after':
-      case 'since':
-        criteria.after = parseDateFilter(value);
-        break;
-      case 'before':
-      case 'until':
-        criteria.before = parseDateFilter(value, true);
-        break;
-      default:
-        criteria.terms.push(token.toLowerCase());
-        break;
-    }
-  }
-
-  return criteria;
-}
-
-function tokenizeSearchInput(input) {
-  const tokens = [];
-  const regex = /"([^"]+)"|'([^']+)'|(\S+)/g;
-  let match;
-  while ((match = regex.exec(input)) !== null) {
-    tokens.push(match[1] || match[2] || match[3]);
-  }
-  return tokens;
-}
-
-function parseDateFilter(value, endOfDay = false) {
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) {
-    return null;
-  }
-
-  if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return timestamp + 24 * 60 * 60 * 1000 - 1;
-  }
-  return timestamp;
-}
-
-function matchSearchEvent(entry, event, criteria) {
-  const eventType = String(event.event_type || '').toLowerCase();
-  if (criteria.eventTypes.length && !criteria.eventTypes.includes(eventType)) {
-    return { ok: false };
-  }
-
-  const sessionId = String(event.session_id || entry.session_id || '').toLowerCase();
-  if (criteria.sessions.length && !criteria.sessions.some((session) => sessionId.includes(session))) {
-    return { ok: false };
-  }
-
-  const status = String(entry.status || '').toLowerCase();
-  if (criteria.statuses.length && !criteria.statuses.includes(status)) {
-    return { ok: false };
-  }
-
-  const timestamp = eventSortTimestamp(event);
-  if (criteria.after && timestamp < criteria.after) {
-    return { ok: false };
-  }
-  if (criteria.before && timestamp > criteria.before) {
-    return { ok: false };
-  }
-
-  const files = eventFileChanges(event);
-  if (criteria.filePaths.length && !criteria.filePaths.every((needle) => (
-    files.some((file) => String(file.path || '').toLowerCase().includes(needle))
-  ))) {
-    return { ok: false };
-  }
-
-  const agents = [
-    event.actor && event.actor.type,
-    event.actor && event.actor.agent_name,
-    entry.agent_name
-  ].filter(Boolean).map((value) => String(value).toLowerCase());
-  if (criteria.agents.length && !criteria.agents.some((needle) => (
-    agents.some((agent) => agent.includes(needle))
-  ))) {
-    return { ok: false };
-  }
-
-  const links = [
-    event.actor && event.actor.link_id,
-    entry.link_id
-  ].filter(Boolean).map((value) => String(value).toLowerCase());
-  if (criteria.links.length && !criteria.links.some((needle) => (
-    links.some((link) => link.includes(needle))
-  ))) {
-    return { ok: false };
-  }
-
-  const tags = eventTags(entry, event).map((tag) => tag.toLowerCase());
-  if (criteria.tags.length && !criteria.tags.every((needle) => (
-    tags.some((tag) => tag.includes(needle))
-  ))) {
-    return { ok: false };
-  }
-
-  const haystack = eventSearchText(entry, event);
-  const normalized = haystack.toLowerCase();
-  if (criteria.terms.length && !criteria.terms.every((term) => normalized.includes(term))) {
-    return { ok: false };
-  }
-
-  return {
-    ok: true,
-    detail: eventSearchDetail(entry, event, criteria, haystack)
-  };
-}
-
-function eventQuickPickLabel(event) {
-  const eventType = event.event_type || 'event';
-  const timestamp = event.timestamp ? formatTimestamp(event.timestamp) : '';
-  return timestamp ? `${eventType} - ${timestamp}` : eventType;
-}
-
-function eventSearchDetail(entry, event, criteria, haystack) {
-  const files = eventFileChanges(event);
-  const fileSummary = files.slice(0, 3).map(formatFileChange).join(', ');
-  const firstTerm = criteria.terms[0] || criteria.filePaths[0] || criteria.agents[0] || criteria.links[0] || criteria.tags[0] || '';
-  const snippet = firstTerm ? firstMatchingLine(haystack, firstTerm) : '';
-  return [
-    eventSummary(event) || entry.last_summary,
-    fileSummary ? `Files: ${fileSummary}${files.length > 3 ? `, +${files.length - 3} more` : ''}` : '',
-    snippet
-  ].filter(Boolean).join(' | ');
-}
-
-function eventSearchText(entry, event) {
-  const payload = event.payload || {};
-  const error = payload.error_context || {};
-  const gitRef = payload.git_ref || {};
-  const attribution = payload.attribution || {};
-  const files = eventFileChanges(event);
-  return [
-    searchableText(entry),
-    event.event_id,
-    event.event_type,
-    event.timestamp,
-    event.session_id,
-    event.actor && event.actor.type,
-    event.actor && event.actor.agent_name,
-    event.actor && event.actor.link_id,
-    payload.objective,
-    payload.summary,
-    ...asArray(payload.tags),
-    gitRef.branch,
-    gitRef.commit_hash,
-    gitRef.commit_message,
-    error.error_message,
-    error.runtime_version,
-    ...asArray(error.log_tail),
-    attribution.status,
-    attribution.reason,
-    ...asArray(attribution.candidate_session_ids),
-    ...files.flatMap((file) => [
-      file.path,
-      file.action,
-      `${file.path} +${file.lines_added || 0} -${file.lines_removed || 0}`
-    ])
-  ].filter(Boolean).join('\n');
-}
-
-function eventSummary(event) {
-  const payload = event.payload || {};
-  if (payload.summary) {
-    return payload.summary;
-  }
-  if (payload.objective) {
-    return payload.objective;
-  }
-  if (payload.error_context && payload.error_context.error_message) {
-    return payload.error_context.error_message;
-  }
-  return '';
-}
-
-function eventTags(entry, event) {
-  const payload = event.payload || {};
-  return [
-    ...asArray(entry.tags),
-    ...asArray(payload.tags)
-  ].filter(Boolean);
-}
-
-function eventFileChanges(event) {
-  const payload = event.payload || {};
-  return asArray(payload.file_changes).filter((file) => file && typeof file === 'object');
-}
-
-function formatFileChange(file) {
-  const pathLabel = file.path || '(unknown)';
-  const action = file.action || 'modified';
-  return `${action} ${pathLabel} (+${file.lines_added || 0} -${file.lines_removed || 0})`;
-}
-
-function eventSortTimestamp(event) {
-  const timestamp = Date.parse(event.timestamp || '');
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function firstMatchingLine(text, normalizedQuery) {
-  for (const line of text.split(/\r?\n/)) {
-    if (line.toLowerCase().includes(normalizedQuery)) {
-      return line.trim().slice(0, 240);
-    }
-  }
-  return '';
-}
-
-function formatTimestamp(value) {
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) {
-    return value;
-  }
-  return new Date(timestamp).toLocaleString();
 }
 
 function encodeTaraeUri(filePath) {
@@ -702,6 +638,19 @@ function decodeTaraeUri(uri) {
     return '';
   }
   return Buffer.from(encodedPath, 'base64url').toString('utf8');
+}
+
+function getNonce() {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let nonce = '';
+  for (let i = 0; i < 32; i += 1) {
+    nonce += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+  }
+  return nonce;
+}
+
+function createReportId(sessionId) {
+  return `${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 module.exports = {

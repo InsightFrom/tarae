@@ -1,10 +1,11 @@
 {
   "name": "tarae",
   "displayName": "Tarae",
-  "description": "Read local Tarae coding-session history from a VS Code sidebar.",
-  "version": "0.1.5",
+  "description": "Read local Tarae coding-session history and generate session reports from VS Code.",
+  "version": "0.1.6",
   "publisher": "insightfrom",
   "license": "MIT",
+  "icon": "resources/tarae.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/InsightFrom/tarae.git",
@@ -26,12 +27,22 @@
   "categories": [
     "Other"
   ],
+  "scripts": {
+    "check": "node -e \"const fs=require('fs'); const cp=require('child_process'); for (const file of fs.readdirSync('src').filter((name)=>name.endsWith('.js'))) cp.execFileSync(process.execPath, ['--check', 'src/'+file], {stdio:'inherit'});\"",
+    "vsix": "npx --yes @vscode/vsce package --no-dependencies",
+    "publish": "npx --yes @vscode/vsce publish"
+  },
   "activationEvents": [
     "onView:tarae.sessions",
+    "onCommand:tarae.openDashboard",
     "onCommand:tarae.openLatestSession",
     "onCommand:tarae.listSessions",
     "onCommand:tarae.searchHistory",
     "onCommand:tarae.openSessionMarkdown",
+    "onCommand:tarae.configureLlmProvider",
+    "onCommand:tarae.generateSessionReport",
+    "onCommand:tarae.clearLlmCredentials",
+    "onCommand:tarae.restartTopaDaemon",
     "onCommand:tarae.refreshSessions"
   ],
   "main": "./src/extension.js",
@@ -55,6 +66,10 @@
     },
     "commands": [
       {
+        "command": "tarae.openDashboard",
+        "title": "Tarae: Open Dashboard"
+      },
+      {
         "command": "tarae.openLatestSession",
         "title": "Tarae: Open Latest Session"
       },
@@ -74,14 +89,63 @@
         "command": "tarae.refreshSessions",
         "title": "Tarae: Refresh Sessions",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "tarae.configureLlmProvider",
+        "title": "Tarae: Configure LLM Provider"
+      },
+      {
+        "command": "tarae.generateSessionReport",
+        "title": "Tarae: Generate Session Report"
+      },
+      {
+        "command": "tarae.clearLlmCredentials",
+        "title": "Tarae: Clear LLM Credentials"
+      },
+      {
+        "command": "tarae.restartTopaDaemon",
+        "title": "Tarae: Restart Topa Daemon"
       }
     ],
+    "configuration": {
+      "title": "Tarae",
+      "properties": {
+        "tarae.llm.provider": {
+          "type": "string",
+          "enum": [
+            "openai"
+          ],
+          "default": "openai",
+          "description": "LLM provider used for Tarae session report generation."
+        },
+        "tarae.llm.model": {
+          "type": "string",
+          "default": "gpt-4.1-mini",
+          "description": "Model used for Tarae session report generation."
+        },
+        "tarae.reports.autoSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically save generated Tarae reports under .tarae/topa/reports/ after preview generation."
+        }
+      }
+    },
     "menus": {
       "view/title": [
         {
+          "command": "tarae.openDashboard",
+          "when": "view == tarae.sessions",
+          "group": "navigation@1"
+        },
+        {
           "command": "tarae.refreshSessions",
           "when": "view == tarae.sessions",
-          "group": "navigation"
+          "group": "navigation@2"
+        },
+        {
+          "command": "tarae.restartTopaDaemon",
+          "when": "view == tarae.sessions",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -89,6 +153,16 @@
           "command": "tarae.openSessionMarkdown",
           "when": "viewItem == taraeSession",
           "group": "inline"
+        },
+        {
+          "command": "tarae.generateSessionReport",
+          "when": "viewItem == taraeSession",
+          "group": "navigation"
+        },
+        {
+          "command": "tarae.openDashboard",
+          "when": "viewItem == taraeSession",
+          "group": "navigation"
         }
       ]
     }

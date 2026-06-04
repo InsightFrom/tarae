@@ -375,6 +375,7 @@ function getDashboardHtml(webview, nonce) {
         <p id="project-root">Loading workspace history...</p>
       </div>
       <div class="actions">
+        <button id="toggle-search" class="secondary" aria-expanded="false" aria-controls="search-panel">Show Search</button>
         <button id="refresh">Refresh</button>
         <button id="restart-topa" class="secondary">Restart Topa</button>
         <button id="configure" class="secondary">Configure LLM</button>
@@ -382,7 +383,7 @@ function getDashboardHtml(webview, nonce) {
       </div>
     </header>
 
-    <section class="filters">
+    <section id="search-panel" class="filters" hidden>
       <label>Keyword<input id="filter-keyword" type="search" placeholder="summary, objective, error"></label>
       <label>File<input id="filter-file" type="search" placeholder="packages/watcher"></label>
       <label>Agent<input id="filter-agent" type="search" placeholder="codex"></label>
@@ -410,6 +411,7 @@ function getDashboardHtml(webview, nonce) {
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    const persistedUi = vscode.getState() || {};
     const state = {
       projectRoot: '',
       sessions: [],
@@ -418,6 +420,7 @@ function getDashboardHtml(webview, nonce) {
       detail: null,
       searchHits: [],
       lastQuery: '',
+      filtersCollapsed: persistedUi.filtersCollapsed !== false,
       llm: { provider: 'openai', model: 'gpt-4.1-mini', hasCredentials: false },
       generatedReport: null,
       pending: false
@@ -430,6 +433,8 @@ function getDashboardHtml(webview, nonce) {
       sessionCount: document.getElementById('session-count'),
       hitCount: document.getElementById('hit-count'),
       detail: document.getElementById('detail'),
+      filterPanel: document.getElementById('search-panel'),
+      toggleSearch: document.getElementById('toggle-search'),
       keyword: document.getElementById('filter-keyword'),
       file: document.getElementById('filter-file'),
       agent: document.getElementById('filter-agent'),
@@ -462,6 +467,7 @@ function getDashboardHtml(webview, nonce) {
         state.searchHits = message.hits || [];
         renderSessions();
         renderHits();
+        applySearchPanelState();
       } else if (message.type === 'llmState') {
         state.llm = message.llm || state.llm;
         renderDetail();
@@ -491,6 +497,10 @@ function getDashboardHtml(webview, nonce) {
     document.getElementById('configure').addEventListener('click', () => post('configureLlm'));
     document.getElementById('clear-credentials').addEventListener('click', () => post('clearLlmCredentials'));
     document.getElementById('apply-search').addEventListener('click', () => runSearch());
+    els.toggleSearch.addEventListener('click', () => {
+      state.filtersCollapsed = !state.filtersCollapsed;
+      applySearchPanelState();
+    });
     document.getElementById('clear-search').addEventListener('click', () => {
       for (const input of [els.keyword, els.file, els.agent, els.link, els.status, els.tag, els.after, els.before]) {
         input.value = '';
@@ -499,6 +509,7 @@ function getDashboardHtml(webview, nonce) {
       state.searchHits = [];
       renderSessions();
       renderHits();
+      applySearchPanelState();
     });
 
     els.sessionList.addEventListener('click', (event) => {
@@ -546,9 +557,27 @@ function getDashboardHtml(webview, nonce) {
         state.searchHits = [];
         renderSessions();
         renderHits();
+        applySearchPanelState();
         return;
       }
       post('search', { query: state.lastQuery });
+    }
+
+    function applySearchPanelState() {
+      els.filterPanel.hidden = state.filtersCollapsed;
+      els.toggleSearch.textContent = searchToggleLabel();
+      els.toggleSearch.setAttribute('aria-expanded', String(!state.filtersCollapsed));
+      vscode.setState({ filtersCollapsed: state.filtersCollapsed });
+    }
+
+    function searchToggleLabel() {
+      if (!state.filtersCollapsed) {
+        return 'Hide Search';
+      }
+      if (state.lastQuery) {
+        return 'Show Search (' + state.searchHits.length + ')';
+      }
+      return 'Show Search';
     }
 
     function buildQuery() {
@@ -755,6 +784,7 @@ function getDashboardHtml(webview, nonce) {
       return escapeHtml(value);
     }
 
+    applySearchPanelState();
     post('loadDashboard', { selectedSessionId: state.selectedSessionId });
   </script>
 </body>

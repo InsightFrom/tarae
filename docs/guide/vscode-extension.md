@@ -160,7 +160,7 @@ Use `Tarae: Restart Topa Daemon` when you want to restart the current workspace 
 `Tarae: Open Dashboard` opens a Webview with:
 
 - Session list with status, updated time, event count, agent, link id, and tags.
-- Filters for keyword, file, agent, link, status, tag, and date range.
+- Collapsible filters for keyword, file, agent, link, status, tag, and date range.
 - Session detail with timeline events, checkpoint and issue summaries, attribution metadata, and file change records.
 - Report scope preview showing what will and will not be sent to the LLM.
 - A `Restart Topa` button that stops only the current workspace daemon.

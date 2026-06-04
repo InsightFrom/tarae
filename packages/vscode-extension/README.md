@@ -21,8 +21,6 @@ The extension reads project-local history from `.tarae/topa/` and opens session 
 
 Install Tarae in a workspace and record at least one session so the project contains `.tarae/topa/`.
 
-The Marketplace install link becomes active after the first `insightfrom.tarae` publish. Before that, install a local VSIX from this package.
-
 ## Commands
 
 - `Tarae: Open Dashboard`
@@ -44,21 +42,6 @@ When the extension activates after a version update, it automatically runs a pro
 - `tarae.reports.autoSave`: automatically save generated reports after preview generation. Default: `false`.
 
 API keys are stored only with VS Code SecretStorage. They are never sent to the Webview.
-
-## Packaging And Publishing
-
-Package a local VSIX:
-
-```bash
-npm run check
-npm run vsix
-```
-
-Publish to the Visual Studio Marketplace after configuring publisher `insightfrom` and a `VSCE_PAT` token with `Marketplace: Manage` scope:
-
-```bash
-VSCE_PAT="<azure-devops-pat>" npm run publish
-```
 
 ## Search
 

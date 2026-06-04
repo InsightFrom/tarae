@@ -147,8 +147,6 @@ By default the extension only reads project history. If you configure an OpenAI 
 
 After a VS Code extension version update, Tarae automatically restarts only the current workspace's project daemon by requesting `topa shutdown --project-root <workspace>`. Other project daemons are not affected.
 
-The Marketplace install link becomes active after the first `insightfrom.tarae` publish.
-
 Run it from source with the VS Code Extension Development Host, or package it as a local `.vsix` for installation. See [VS Code Extension](docs/guide/vscode-extension.md).
 
 ## Build From Source

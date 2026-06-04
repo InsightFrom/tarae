@@ -4,7 +4,7 @@ The Tarae VS Code extension is a local viewer for project history under `.tarae/
 
 ## Current Status
 
-The extension lives in `packages/vscode-extension` and is intended for local development first. It is not published to the Visual Studio Marketplace yet.
+The extension is published on the Visual Studio Marketplace as `insightfrom.tarae`. Source code lives in `packages/vscode-extension`.
 
 ## What It Reads
 
@@ -68,15 +68,15 @@ On macOS without the `code` command:
 
 ## Marketplace Install Button
 
-The public README links to the expected Marketplace item:
+The public README links to the Marketplace item:
 
 ```text
 https://marketplace.visualstudio.com/items?itemName=insightfrom.tarae
 ```
 
-That link becomes active after the first Marketplace publish. Until then, use a local VSIX.
+Use a local VSIX only when testing unpublished changes.
 
-## Publish To Marketplace
+## Maintainer Publishing
 
 VS Code extensions are published with `vsce` to the Visual Studio Marketplace. Tarae's extension manifest already uses:
 

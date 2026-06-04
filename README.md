@@ -71,13 +71,13 @@ tarae --version
 Upgrade the project-local install and restart the AI app so it launches fresh MCP bridge processes:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.6 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.7 --project-root "$PWD"
 ```
 
 If your installed CLI does not have `upgrade` yet, rerun the installer for the target release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.6 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.7 bash
 ```
 
 For unreleased branch testing, build `topa` from the selected source ref:
@@ -173,7 +173,7 @@ tarae link codex --project-root "$PWD"
 tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 tarae link codex --project-root "$PWD" --fixed-project-root
 tarae verify --agent codex --project-root "$PWD"
-tarae upgrade --ref v0.1.6 --project-root "$PWD"
+tarae upgrade --ref v0.1.7 --project-root "$PWD"
 tarae doctor --project-root "$PWD"
 tarae status --project-root "$PWD"
 tarae unlink codex

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7
+
+- Finalize stale active human sessions when later AI activity starts in the same project.
+- Add lightweight startup repair for active session state before AI sessions begin.
+- Make Dashboard search filters and result sections collapsible.
+- Add Dashboard detail tabs, saved/recent filters, and agent attribution summaries.
+
 ## 0.1.6
 
 - Add `Tarae: Open Dashboard` with a serverless VS Code Webview for session timelines, filters, file changes, attribution, and report scope.

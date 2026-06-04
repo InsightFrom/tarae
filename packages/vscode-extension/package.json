@@ -2,7 +2,7 @@
   "name": "tarae",
   "displayName": "Tarae",
   "description": "Read local Tarae coding-session history and generate session reports from VS Code.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "publisher": "insightfrom",
   "license": "MIT",
   "icon": "resources/tarae.png",

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Track unread sessions in the Tarae sidebar with a Sessions badge.
+- Remove the redundant `Tarae: Open Latest Session` command and sidebar item.
+- Track extension-update daemon restart state per workspace.
+- Debounce history refreshes and tolerate transient `.tarae` file read races.
+- Prevent stale Dashboard session/report responses from replacing the selected session.
+- Improve Dashboard loading, error recovery, report save failures, and narrow-screen layout behavior.
+
 ## 0.1.7
 
 - Finalize stale active human sessions when later AI activity starts in the same project.

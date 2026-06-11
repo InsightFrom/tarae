@@ -104,6 +104,7 @@ function getDashboardHtml(webview, nonce) {
       align-items: center;
       justify-content: space-between;
       gap: var(--gap);
+      flex-wrap: wrap;
       padding: 12px 16px;
       border-bottom: 1px solid var(--border);
       background: var(--panel);
@@ -133,6 +134,10 @@ function getDashboardHtml(webview, nonce) {
       gap: 8px;
       flex-wrap: wrap;
       justify-content: flex-end;
+    }
+
+    .actions button {
+      white-space: nowrap;
     }
 
     .filters {
@@ -412,6 +417,34 @@ function getDashboardHtml(webview, nonce) {
       }
     }
 
+    @media (max-width: 560px) {
+      .topbar {
+        align-items: stretch;
+      }
+
+      .title,
+      .actions {
+        width: 100%;
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .actions button {
+        width: 100%;
+      }
+
+      .filters {
+        grid-template-columns: 1fr;
+      }
+
+      .detail {
+        padding: 12px;
+      }
+    }
+
     [hidden] {
       display: none !important;
     }
@@ -469,6 +502,7 @@ function getDashboardHtml(webview, nonce) {
       sessions: [],
       activeSessions: [],
       selectedSessionId: '',
+      loadingSessionId: '',
       detail: null,
       searchHits: [],
       lastQuery: '',
@@ -480,7 +514,7 @@ function getDashboardHtml(webview, nonce) {
       recentSearches: Array.isArray(persistedUi.recentSearches) ? persistedUi.recentSearches : [],
       llm: { provider: 'openai', model: 'gpt-4.1-mini', hasCredentials: false },
       generatedReport: null,
-      pending: false
+      pendingReportSessionId: ''
     };
 
     const els = {
@@ -520,8 +554,13 @@ function getDashboardHtml(webview, nonce) {
           selectSession(state.sessions[0].session_id);
         }
       } else if (message.type === 'sessionDetail') {
+        const detailSessionId = message.detail && message.detail.entry ? message.detail.entry.session_id : '';
+        if (state.selectedSessionId && detailSessionId !== state.selectedSessionId) {
+          return;
+        }
         state.detail = message.detail;
-        state.selectedSessionId = message.detail && message.detail.entry ? message.detail.entry.session_id : '';
+        state.selectedSessionId = detailSessionId;
+        state.loadingSessionId = '';
         state.generatedReport = null;
         renderSessions();
         renderDetail();
@@ -537,21 +576,39 @@ function getDashboardHtml(webview, nonce) {
         state.llm = message.llm || state.llm;
         renderDetail();
       } else if (message.type === 'reportGenerated') {
-        state.pending = false;
+        if (message.sessionId !== state.selectedSessionId) {
+          if (state.pendingReportSessionId === message.sessionId) {
+            state.pendingReportSessionId = '';
+          }
+          return;
+        }
+        state.pendingReportSessionId = '';
         state.generatedReport = {
+          sessionId: message.sessionId,
           reportId: message.reportId,
           markdown: message.markdown || '',
           savedPath: message.savedPath || ''
         };
         renderDetail();
       } else if (message.type === 'reportSaved') {
-        if (state.generatedReport) {
+        if (message.sessionId === state.selectedSessionId && state.generatedReport) {
           state.generatedReport.savedPath = message.path || '';
+          renderDetail();
         }
-        renderDetail();
       } else if (message.type === 'error') {
-        state.pending = false;
+        if (message.sessionId && message.sessionId !== state.selectedSessionId) {
+          if (state.pendingReportSessionId === message.sessionId) {
+            state.pendingReportSessionId = '';
+            renderDetail();
+          }
+          return;
+        }
+        if (!message.sessionId || state.loadingSessionId === message.sessionId) {
+          state.loadingSessionId = '';
+        }
+        state.pendingReportSessionId = '';
         showNotice(message.message || 'Tarae dashboard error.', true);
+        renderDetail();
       }
     });
 
@@ -617,7 +674,7 @@ function getDashboardHtml(webview, nonce) {
       } else if (action === 'openMarkdown' && state.selectedSessionId) {
         post('openSession', { sessionId: state.selectedSessionId });
       } else if (action === 'generateReport' && state.selectedSessionId) {
-        state.pending = true;
+        state.pendingReportSessionId = state.selectedSessionId;
         renderDetail();
         post('generateReport', { sessionId: state.selectedSessionId });
       } else if (action === 'saveReport' && state.generatedReport) {
@@ -630,7 +687,10 @@ function getDashboardHtml(webview, nonce) {
         return;
       }
       state.selectedSessionId = sessionId;
+      state.loadingSessionId = sessionId;
+      state.generatedReport = null;
       renderSessions();
+      renderDetail();
       post('loadSession', { sessionId });
     }
 
@@ -857,6 +917,10 @@ function getDashboardHtml(webview, nonce) {
 
     function renderDetail() {
       const detail = state.detail;
+      if (state.loadingSessionId) {
+        els.detail.innerHTML = '<div class="empty">Loading session details...</div>';
+        return;
+      }
       if (!detail || !detail.entry) {
         els.detail.innerHTML = '<div class="empty">Select a Tarae session to inspect its timeline, file changes, and report scope.</div>';
         return;
@@ -866,7 +930,7 @@ function getDashboardHtml(webview, nonce) {
       const scope = detail.reportScope || {};
       const report = state.generatedReport;
       const credentials = state.llm.hasCredentials ? 'configured' : 'not configured';
-      const pending = state.pending ? '<div class="notice">Generating report. This may take a moment.</div>' : '';
+      const pending = state.pendingReportSessionId === entry.session_id ? '<div class="notice">Generating report. This may take a moment.</div>' : '';
       const saved = report && report.savedPath ? '<div class="notice">Saved report: ' + escapeHtml(report.savedPath) + '</div>' : '';
       const preview = report ? '<textarea class="report-preview" readonly>' + escapeHtml(report.markdown) + '</textarea>' : '';
       const reportActions = report
@@ -879,7 +943,7 @@ function getDashboardHtml(webview, nonce) {
           '<div class="event-title"><h2>' + escapeHtml(entry.objective || entry.session_id) + '</h2><span>' + escapeHtml(entry.status || 'unknown') + '</span></div>' +
           '<p class="summary">' + escapeHtml(entry.last_summary || 'No summary recorded.') + '</p>' +
           '<div class="meta">' + metaPill('session', entry.session_id) + metaPill('agent', entry.agent_name) + metaPill('link', entry.link_id) + metaPill('updated', formatDate(entry.updated_at)) + '</div>' +
-          '<div class="actions"><button data-action="openMarkdown" class="secondary">Open Markdown</button><button data-action="generateReport" ' + (state.pending ? 'disabled' : '') + '>Generate Report</button>' + reportActions + '</div>' +
+          '<div class="actions"><button data-action="openMarkdown" class="secondary">Open Markdown</button><button data-action="generateReport" ' + (state.pendingReportSessionId ? 'disabled' : '') + '>Generate Report</button>' + reportActions + '</div>' +
         '</section>' +
         renderDetailTabs(detail) +
         renderActiveDetailTab(tabContext) +

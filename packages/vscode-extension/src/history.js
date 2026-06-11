@@ -13,7 +13,13 @@ function readHistory(projectRoot) {
   }
 
   if (fs.existsSync(sessionsDir)) {
-    for (const name of fs.readdirSync(sessionsDir)) {
+    let sessionFiles = [];
+    try {
+      sessionFiles = fs.readdirSync(sessionsDir);
+    } catch {
+      sessionFiles = [];
+    }
+    for (const name of sessionFiles) {
       if (!name.endsWith('.md')) {
         continue;
       }
@@ -292,14 +298,22 @@ function buildReportScope(entry, events, markdown) {
 }
 
 function existingFile(filePath) {
-  return fs.existsSync(filePath) ? filePath : null;
+  try {
+    return fs.existsSync(filePath) ? filePath : null;
+  } catch {
+    return null;
+  }
 }
 
 function readOptional(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) {
+      return '';
+    }
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
     return '';
   }
-  return fs.readFileSync(filePath, 'utf8');
 }
 
 function compactDescription(entry) {

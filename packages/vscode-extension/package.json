@@ -35,7 +35,6 @@
   "activationEvents": [
     "onView:tarae.sessions",
     "onCommand:tarae.openDashboard",
-    "onCommand:tarae.openLatestSession",
     "onCommand:tarae.listSessions",
     "onCommand:tarae.searchHistory",
     "onCommand:tarae.openSessionMarkdown",
@@ -68,10 +67,6 @@
       {
         "command": "tarae.openDashboard",
         "title": "Tarae: Open Dashboard"
-      },
-      {
-        "command": "tarae.openLatestSession",
-        "title": "Tarae: Open Latest Session"
       },
       {
         "command": "tarae.listSessions",

@@ -8,11 +8,11 @@ The extension reads project-local history from `.tarae/topa/` and opens session 
 
 ## Features
 
-- Show the latest Tarae session in the Activity Bar.
 - List sessions from `.tarae/topa/session_index.jsonl`.
+- Show an unread count badge for sessions that have not been opened as Markdown.
 - Search objectives, summaries, Markdown, and JSONL session events.
 - Open session Markdown as a read-only virtual document.
-- Open a local-server-free Dashboard Webview for session timelines, file changes, attribution tabs, saved searches, and collapsible filters.
+- Open a local-server-free Dashboard Webview for session timelines, file changes, attribution tabs, saved searches, collapsible filters, and responsive narrow-screen layouts.
 - Restart only the current workspace's `topa` daemon from the Dashboard or command palette.
 - Configure an OpenAI API key in VS Code SecretStorage for session report generation.
 - Preview generated session reports and save them under `.tarae/topa/reports/<session-id>/`.
@@ -30,7 +30,6 @@ You can also open the Tarae Activity Bar item and use the Dashboard entry from t
 ## Commands
 
 - `Tarae: Open Dashboard`
-- `Tarae: Open Latest Session`
 - `Tarae: List Sessions`
 - `Tarae: Search History`
 - `Tarae: Open Session Markdown`
@@ -39,7 +38,7 @@ You can also open the Tarae Activity Bar item and use the Dashboard entry from t
 - `Tarae: Clear LLM Credentials`
 - `Tarae: Restart Topa Daemon`
 
-When the extension activates after a version update, it automatically runs a project-scoped `topa shutdown --project-root <workspace>` for the current workspace only. Other projects are not affected. The next Tarae MCP call starts a fresh project daemon.
+When the extension activates after a version update, it automatically runs a project-scoped `topa shutdown --project-root <workspace>` for the current workspace only. Restart state is tracked per workspace, so other projects are not affected. The next Tarae MCP call starts a fresh project daemon.
 
 ## Settings
 
@@ -63,7 +62,7 @@ The Dashboard exposes the same filters as form controls for keyword, file, agent
 
 `Tarae: Generate Session Report` and the Dashboard report button use recorded Tarae history as input: session metadata, JSONL events, checkpoint and issue summaries, file change metadata, and rendered session Markdown.
 
-Reports exclude API keys, raw project file contents, and full raw git diffs. Saved reports are written to:
+Reports exclude API keys, raw project file contents, and full raw git diffs. If you switch sessions while a report is being generated, Tarae only shows the result on the matching session. Saved reports are written to:
 
 ```text
 .tarae/topa/reports/<session-id>/<timestamp>.md

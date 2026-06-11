@@ -1,14 +1,16 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 const vscode = require('vscode');
 
-const LAST_ACTIVATED_VERSION_KEY = 'tarae.lastActivatedExtensionVersion';
+const LAST_ACTIVATED_VERSION_KEY_PREFIX = 'tarae.lastActivatedExtensionVersion.v2';
 
 async function restartProjectDaemonAfterUpdate(context, projectRoot) {
   const currentVersion = context.extension.packageJSON.version || '';
-  const previousVersion = context.globalState.get(LAST_ACTIVATED_VERSION_KEY, '');
+  const versionKey = projectVersionStateKey(projectRoot || '');
+  const previousVersion = versionKey ? context.globalState.get(versionKey, '') : '';
 
   if (!projectRoot || !currentVersion) {
     return { restarted: false, reason: 'no-project-root' };
@@ -19,7 +21,7 @@ async function restartProjectDaemonAfterUpdate(context, projectRoot) {
   }
 
   if (!previousVersion && !hasRuntimeMetadata(projectRoot)) {
-    await context.globalState.update(LAST_ACTIVATED_VERSION_KEY, currentVersion);
+    await context.globalState.update(versionKey, currentVersion);
     return { restarted: false, reason: 'first-activation-without-runtime' };
   }
 
@@ -28,7 +30,7 @@ async function restartProjectDaemonAfterUpdate(context, projectRoot) {
       ? `extension update ${previousVersion} -> ${currentVersion}`
       : `extension activation ${currentVersion} with existing runtime metadata`
   });
-  await context.globalState.update(LAST_ACTIVATED_VERSION_KEY, currentVersion);
+  await context.globalState.update(versionKey, currentVersion);
   return result;
 }
 
@@ -89,6 +91,14 @@ function hasRuntimeMetadata(projectRoot) {
   return fs.existsSync(path.join(projectRoot, '.tarae', 'topa', 'runtime', 'server.json'));
 }
 
+function projectVersionStateKey(projectRoot) {
+  if (!projectRoot) {
+    return '';
+  }
+  const digest = crypto.createHash('sha256').update(projectRoot).digest('hex');
+  return `${LAST_ACTIVATED_VERSION_KEY_PREFIX}.${digest}`;
+}
+
 function execFileAsync(command, args, options) {
   return new Promise((resolve, reject) => {
     execFile(command, args, options, (error, stdout, stderr) => {
@@ -105,6 +115,7 @@ function execFileAsync(command, args, options) {
 
 module.exports = {
   hasRuntimeMetadata,
+  projectVersionStateKey,
   restartProjectDaemon,
   restartProjectDaemonAfterUpdate,
   restartProjectDaemonCommand,

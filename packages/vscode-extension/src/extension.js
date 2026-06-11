@@ -26,26 +26,36 @@ const {
   restartProjectDaemonAfterUpdate,
   restartProjectDaemonCommand
 } = require('./topaDaemon');
+const {
+  createReadBaseline,
+  isUnreadSession,
+  readSignature,
+  readStateKey
+} = require('./unreadState');
 
 const TARAE_SCHEME = 'tarae-session';
+const HISTORY_REFRESH_DEBOUNCE_MS = 200;
 
 let dashboardPanel = null;
 let pendingDashboardSessionId = '';
 const reportCache = new Map();
 
 function activate(context) {
-  const provider = new TaraeSessionsProvider(() => refreshDashboard(context));
+  const provider = new TaraeSessionsProvider(context, () => refreshDashboard(context));
   const contentProvider = new TaraeMarkdownProvider();
+  const sessionsView = vscode.window.createTreeView('tarae.sessions', {
+    treeDataProvider: provider
+  });
+  provider.setTreeView(sessionsView);
   restartProjectDaemonAfterExtensionUpdate(context, provider);
 
   context.subscriptions.push(
     provider,
-    vscode.window.registerTreeDataProvider('tarae.sessions', provider),
+    sessionsView,
     vscode.workspace.registerTextDocumentContentProvider(TARAE_SCHEME, contentProvider),
     vscode.workspace.onDidChangeWorkspaceFolders(() => provider.refresh()),
     vscode.commands.registerCommand('tarae.refreshSessions', () => provider.refresh()),
     vscode.commands.registerCommand('tarae.openDashboard', (item) => openDashboard(context, provider, item)),
-    vscode.commands.registerCommand('tarae.openLatestSession', () => openLatestSession(provider)),
     vscode.commands.registerCommand('tarae.listSessions', () => listSessions(provider)),
     vscode.commands.registerCommand('tarae.searchHistory', () => searchHistoryCommand(provider)),
     vscode.commands.registerCommand('tarae.openSessionMarkdown', (item) => openSessionMarkdown(provider, item)),
@@ -85,20 +95,25 @@ function restartProjectDaemonAfterExtensionUpdate(context, provider) {
 }
 
 class TaraeSessionsProvider {
-  constructor(onHistoryChanged) {
+  constructor(context, onHistoryChanged) {
     this._onDidChangeTreeData = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+    this.context = context;
     this.onHistoryChanged = onHistoryChanged;
+    this.treeView = null;
+    this.refreshTimer = null;
     this.watchers = [];
     this.resetWatchers();
   }
 
+  setTreeView(treeView) {
+    this.treeView = treeView;
+    this.updateBadge();
+  }
+
   refresh() {
     this.resetWatchers();
-    this._onDidChangeTreeData.fire();
-    if (this.onHistoryChanged) {
-      this.onHistoryChanged();
-    }
+    this.emitTreeChanged(true);
   }
 
   getTreeItem(item) {
@@ -116,14 +131,11 @@ class TaraeSessionsProvider {
     }
 
     const history = readHistory(root);
+    const readState = this.readStateForRoot(root, history.sessions);
     const items = [];
 
-    if (history.latestMarkdownPath) {
-      items.push(new LatestItem(history.latestMarkdownPath));
-    }
-
     for (const entry of history.sessions) {
-      items.push(new SessionItem(entry));
+      items.push(new SessionItem(entry, isUnreadSession(entry, readState)));
     }
 
     if (items.length === 0) {
@@ -138,9 +150,25 @@ class TaraeSessionsProvider {
     return root ? readHistory(root).sessions : [];
   }
 
-  latestMarkdownPath() {
+  async markSessionRead(entry) {
     const root = getProjectRoot();
-    return root ? readHistory(root).latestMarkdownPath : null;
+    if (!root || !entry || !entry.session_id) {
+      return;
+    }
+
+    const sessions = readHistory(root).sessions;
+    const session = sessions.find((candidate) => candidate.session_id === entry.session_id) || entry;
+    const readState = {
+      ...this.readStateForRoot(root, sessions),
+      [session.session_id]: readSignature(session)
+    };
+    try {
+      await this.context.workspaceState.update(readStateKey(root), readState);
+    } catch (error) {
+      console.warn(`Failed to store Tarae read state: ${error && error.message ? error.message : error}`);
+      return;
+    }
+    this.emitTreeChanged(false);
   }
 
   resetWatchers() {
@@ -153,21 +181,76 @@ class TaraeSessionsProvider {
       const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(folder, '.tarae/topa/**')
       );
-      watcher.onDidCreate(() => this.notifyHistoryChanged());
-      watcher.onDidChange(() => this.notifyHistoryChanged());
-      watcher.onDidDelete(() => this.notifyHistoryChanged());
+      watcher.onDidCreate(() => this.scheduleHistoryChanged());
+      watcher.onDidChange(() => this.scheduleHistoryChanged());
+      watcher.onDidDelete(() => this.scheduleHistoryChanged());
       this.watchers.push(watcher);
     }
   }
 
+  scheduleHistoryChanged() {
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+    }
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      this.notifyHistoryChanged();
+    }, HISTORY_REFRESH_DEBOUNCE_MS);
+  }
+
   notifyHistoryChanged() {
+    this.emitTreeChanged(true);
+  }
+
+  emitTreeChanged(historyChanged) {
     this._onDidChangeTreeData.fire();
-    if (this.onHistoryChanged) {
+    this.updateBadge();
+    if (historyChanged && this.onHistoryChanged) {
       this.onHistoryChanged();
     }
   }
 
+  updateBadge() {
+    if (!this.treeView) {
+      return;
+    }
+
+    const root = getProjectRoot();
+    if (!root) {
+      this.treeView.badge = undefined;
+      return;
+    }
+
+    const sessions = readHistory(root).sessions;
+    const readState = this.readStateForRoot(root, sessions);
+    const unreadCount = sessions.filter((entry) => isUnreadSession(entry, readState)).length;
+    this.treeView.badge = unreadCount > 0
+      ? {
+        value: unreadCount,
+        tooltip: `${unreadCount} unread Tarae session${unreadCount === 1 ? '' : 's'}`
+      }
+      : undefined;
+  }
+
+  readStateForRoot(root, sessions) {
+    const key = readStateKey(root);
+    const stored = this.context.workspaceState.get(key);
+    if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+      return stored;
+    }
+
+    const baseline = createReadBaseline(sessions);
+    this.context.workspaceState.update(key, baseline).then(undefined, (error) => {
+      console.warn(`Failed to store Tarae unread baseline: ${error && error.message ? error.message : error}`);
+    });
+    return baseline;
+  }
+
   dispose() {
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
     for (const watcher of this.watchers) {
       watcher.dispose();
     }
@@ -176,27 +259,18 @@ class TaraeSessionsProvider {
   }
 }
 
-class LatestItem extends vscode.TreeItem {
-  constructor(markdownPath) {
-    super('Latest Session', vscode.TreeItemCollapsibleState.None);
-    this.description = path.basename(markdownPath);
-    this.tooltip = markdownPath;
-    this.iconPath = new vscode.ThemeIcon('history');
-    this.command = {
-      command: 'tarae.openLatestSession',
-      title: 'Open Latest Session'
-    };
-  }
-}
-
 class SessionItem extends vscode.TreeItem {
-  constructor(entry) {
+  constructor(entry, unread) {
     super(entry.objective || entry.session_id, vscode.TreeItemCollapsibleState.None);
     this.entry = entry;
     this.contextValue = 'taraeSession';
-    this.description = compactDescription(entry);
-    this.tooltip = sessionTooltip(entry);
-    this.iconPath = new vscode.ThemeIcon(entry.status === 'completed' ? 'check' : 'debug-start');
+    const description = compactDescription(entry);
+    const tooltip = sessionTooltip(entry);
+    this.description = unread ? (description ? `Unread - ${description}` : 'Unread') : description;
+    this.tooltip = unread ? ['Unread', tooltip].filter(Boolean).join('\n') : tooltip;
+    this.iconPath = unread
+      ? new vscode.ThemeIcon('circle-filled')
+      : new vscode.ThemeIcon(entry.status === 'completed' ? 'check' : 'debug-start');
     this.command = {
       command: 'tarae.openSessionMarkdown',
       title: 'Open Session Markdown',
@@ -215,10 +289,15 @@ class MessageItem extends vscode.TreeItem {
 class TaraeMarkdownProvider {
   provideTextDocumentContent(uri) {
     const filePath = decodeTaraeUri(uri);
-    if (!filePath || !fs.existsSync(filePath)) {
-      return `Tarae session file not found: ${filePath || uri.toString()}`;
+    try {
+      if (!filePath || !fs.existsSync(filePath)) {
+        return `Tarae session file not found: ${filePath || uri.toString()}`;
+      }
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      return `Failed to read Tarae session file: ${message}`;
     }
-    return fs.readFileSync(filePath, 'utf8');
   }
 }
 
@@ -285,7 +364,7 @@ async function handleDashboardMessage(context, provider, message) {
       await generateDashboardReport(context, message.sessionId);
       break;
     case 'saveReport':
-      await saveDashboardReport(message.reportId);
+      await saveDashboardReport(context, message.reportId);
       break;
     default:
       break;
@@ -323,13 +402,13 @@ async function sendSessionDetail(sessionId) {
   }
   const root = getProjectRoot();
   if (!root) {
-    postDashboardError('Open a workspace folder to view Tarae history.');
+    postDashboardError('Open a workspace folder to view Tarae history.', sessionId);
     return;
   }
 
   const detail = getSessionDetail(root, sessionId);
   if (!detail) {
-    postDashboardError(`Tarae session not found: ${sessionId}`);
+    postDashboardError(`Tarae session not found: ${sessionId}`, sessionId);
     return;
   }
   dashboardPanel.webview.postMessage({ type: 'sessionDetail', detail });
@@ -391,16 +470,17 @@ async function generateDashboardReport(context, sessionId) {
 
     dashboardPanel.webview.postMessage({
       type: 'reportGenerated',
+      sessionId,
       reportId,
       markdown: result.markdown,
       savedPath
     });
   } catch (error) {
-    await handleReportError(context, error);
+    await handleReportError(context, error, sessionId);
   }
 }
 
-async function saveDashboardReport(reportId) {
+async function saveDashboardReport(context, reportId) {
   if (!dashboardPanel) {
     return;
   }
@@ -410,17 +490,17 @@ async function saveDashboardReport(reportId) {
     postDashboardError('No generated report is available to save.');
     return;
   }
-  const reportPath = saveReport(root, report);
-  dashboardPanel.webview.postMessage({ type: 'reportSaved', path: reportPath });
-}
-
-async function openLatestSession(provider) {
-  const latestPath = provider.latestMarkdownPath();
-  if (!latestPath) {
-    vscode.window.showInformationMessage('No Tarae latest.md file found in this workspace.');
-    return;
+  const sessionId = report.context.entry.session_id;
+  try {
+    const reportPath = saveReport(root, report);
+    dashboardPanel.webview.postMessage({
+      type: 'reportSaved',
+      sessionId,
+      path: reportPath
+    });
+  } catch (error) {
+    await handleReportError(context, error, sessionId);
   }
-  await openReadonlyMarkdown(latestPath);
 }
 
 async function listSessions(provider) {
@@ -547,6 +627,7 @@ async function openSessionMarkdown(provider, item) {
     return;
   }
   await openReadonlyMarkdown(markdownPath);
+  await provider.markSessionRead(session);
 }
 
 async function pickSession(sessions) {
@@ -582,7 +663,7 @@ async function openReadonlyMarkdown(filePath) {
   await vscode.window.showTextDocument(markdownDocument, { preview: false });
 }
 
-async function handleReportError(context, error) {
+async function handleReportError(context, error, sessionId = '') {
   if (error instanceof MissingCredentialsError || error.code === 'missingCredentials') {
     const choice = await vscode.window.showWarningMessage(
       'Tarae LLM credentials are not configured.',
@@ -592,21 +673,22 @@ async function handleReportError(context, error) {
       await configureLlmProvider(context);
       await sendLlmState(context);
     }
-    postDashboardError('Configure an OpenAI API key before generating a report.');
+    postDashboardError('Configure an OpenAI API key before generating a report.', sessionId);
     return;
   }
 
   const message = error && error.message ? error.message : String(error);
   vscode.window.showErrorMessage(message);
-  postDashboardError(message);
+  postDashboardError(message, sessionId);
 }
 
-function postDashboardError(message) {
+function postDashboardError(message, sessionId = '') {
   if (!dashboardPanel) {
     return;
   }
   dashboardPanel.webview.postMessage({
     type: 'error',
+    sessionId,
     message
   });
 }

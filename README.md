@@ -141,11 +141,11 @@ The JSONL file is the canonical event log using `topa-event-v1`. The Markdown fi
 
 [![Install Tarae in VS Code](https://img.shields.io/badge/VS%20Code-Install%20Tarae-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=insightfrom.tarae)
 
-The VS Code extension in `packages/vscode-extension` shows local Tarae history from `.tarae/topa/` in a sidebar and Dashboard Webview. It can open the latest session, list sessions, search event history, inspect session timelines, and generate optional LLM session reports.
+The VS Code extension in `packages/vscode-extension` shows local Tarae history from `.tarae/topa/` in a sidebar and Dashboard Webview. It can list sessions with unread indicators, search event history, inspect session timelines, and generate optional LLM session reports.
 
 By default the extension only reads project history. If you configure an OpenAI API key, Tarae stores it in VS Code SecretStorage and uses it from the extension host; the Webview never receives the key. Reports are saved only when you explicitly choose to save them, under `.tarae/topa/reports/<session-id>/`.
 
-After a VS Code extension version update, Tarae automatically restarts only the current workspace's project daemon by requesting `topa shutdown --project-root <workspace>`. Other project daemons are not affected.
+After a VS Code extension version update, Tarae automatically restarts only the current workspace's project daemon by requesting `topa shutdown --project-root <workspace>`. Restart state is tracked per workspace, so other project daemons are not affected.
 
 Run it from source with the VS Code Extension Development Host, or package it as a local `.vsix` for installation. See [VS Code Extension](docs/guide/vscode-extension.md).
 

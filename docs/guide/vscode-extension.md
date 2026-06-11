@@ -142,7 +142,6 @@ References:
 ## Commands
 
 - `Tarae: Open Dashboard`
-- `Tarae: Open Latest Session`
 - `Tarae: List Sessions`
 - `Tarae: Search History`
 - `Tarae: Open Session Markdown`
@@ -151,7 +150,7 @@ References:
 - `Tarae: Clear LLM Credentials`
 - `Tarae: Restart Topa Daemon`
 
-After an extension version update, Tarae automatically requests `topa shutdown --project-root <workspace>` for the current workspace only. This does not touch daemons for other projects. The next Tarae MCP tool call starts a fresh project daemon.
+After an extension version update, Tarae automatically requests `topa shutdown --project-root <workspace>` for the current workspace only. Restart state is tracked per workspace, so this does not touch or suppress restart handling for other projects. The next Tarae MCP tool call starts a fresh project daemon.
 
 Use `Tarae: Restart Topa Daemon` when you want to restart the current workspace daemon manually.
 
@@ -160,9 +159,11 @@ Use `Tarae: Restart Topa Daemon` when you want to restart the current workspace 
 `Tarae: Open Dashboard` opens a Webview with:
 
 - Session list with status, updated time, event count, agent, link id, and tags.
+- Unread session count badge for sessions not yet opened as Markdown.
 - Collapsible filters for keyword, file, agent, link, status, tag, and date range, plus saved and recent searches.
 - Session detail tabs for overview, timeline events, file changes, agent attribution, and report generation.
 - Report scope preview showing what will and will not be sent to the LLM.
+- Loading and stale-response handling so slow session/report responses do not overwrite the wrong selected session.
 - A `Restart Topa` button that stops only the current workspace daemon.
 
 The Webview receives only sanitized dashboard data from the extension host. It cannot read the workspace filesystem or access API keys directly.
@@ -181,7 +182,7 @@ tarae.reports.autoSave = false
 
 Report generation uses recorded Tarae history as input: session metadata, JSONL event timeline, checkpoint and issue summaries, file change metadata, and rendered session Markdown. It excludes API keys, raw project file contents, and full raw git diffs.
 
-When `tarae.reports.autoSave` is `false`, generated reports are previewed first. Use `Save Report` to write them under `.tarae/topa/reports/<session-id>/`.
+When `tarae.reports.autoSave` is `false`, generated reports are previewed first. Report responses are matched to the selected session before display. Use `Save Report` to write them under `.tarae/topa/reports/<session-id>/`.
 
 ## Search Syntax
 
@@ -211,11 +212,11 @@ type:auto_checkpoint file:packages/cli after:2026-05-27
 
 Use a project with Tarae history, then verify:
 
-- The Tarae sidebar lists `latest.md` and session entries.
+- The Tarae sidebar lists session entries and shows an unread count badge for sessions not yet opened as Markdown.
 - `Tarae: Open Dashboard` opens the Webview without starting a local server.
 - The Dashboard filters by keyword, file, agent, link, status, tag, and date range.
 - Selecting a session shows timeline events, file changes, and report scope.
-- `Tarae: Open Latest Session` opens `.tarae/topa/latest.md` as Markdown.
+- Switching sessions while details or reports are loading does not replace the newly selected session with an older response.
 - `Tarae: List Sessions` shows sessions from `session_index.jsonl`.
 - `Tarae: Search History` finds event-level JSONL matches by text and filters.
 - Opened session documents are read-only virtual documents.
@@ -223,5 +224,6 @@ Use a project with Tarae history, then verify:
 - `Tarae: Clear LLM Credentials` removes the stored key.
 - Generating a report without credentials prompts for LLM configuration.
 - Generating a report with credentials previews Markdown before saving.
+- The Dashboard remains usable at narrow widths without topbar buttons overlapping.
 - `Save Report` writes `.tarae/topa/reports/<session-id>/<timestamp>.md`.
 - `Tarae: Restart Topa Daemon` stops only the current workspace daemon.

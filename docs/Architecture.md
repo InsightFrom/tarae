@@ -119,6 +119,8 @@ Raw source files, raw diffs, and secrets are outside the Markdown projection.
 
 ## MCP Tools
 
+Tarae's MCP surface is intentionally bidirectional. Lifecycle tools write structured project history, and history tools let later agents search that same local memory before they act. This makes Tarae useful both as a human-readable log and as an agent handoff layer for sequential or orchestrated work.
+
 Lifecycle:
 
 - `start_session`

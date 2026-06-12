@@ -39,6 +39,8 @@ The CLI prints an `MCP files touched` summary showing which config file was read
 By default, the MCP config is project-root agnostic. Tarae resolves the project at tool-call time from MCP `roots/list`, or from the `project_root` argument passed to lifecycle tools. Use `--fixed-project-root` only for clients that cannot provide either.
 Linked MCP configs include `TARAE_AGENT_NAME` and `TARAE_LINK_ID` so orchestrated agents can keep separate active sessions in one project. Use `--link-id <id>` when you need a stable role identity, for example `codex-backend` or `gemini-qa`.
 
+The install script sets up the CLI and `topa` MCP runtime. The VS Code extension is optional and installed separately from the Marketplace when you want a human dashboard.
+
 Supported agents:
 
 ```text
@@ -71,13 +73,13 @@ tarae --version
 Upgrade the project-local install and restart the AI app so it launches fresh MCP bridge processes:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.7 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.8 --project-root "$PWD"
 ```
 
 If your installed CLI does not have `upgrade` yet, rerun the installer for the target release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.7 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.8 bash
 ```
 
 For unreleased branch testing, build `topa` from the selected source ref:
@@ -97,6 +99,8 @@ For unreleased branch testing, build `topa` from the selected source ref:
 
 ## How Agents Use It
 
+Tarae acts as a local project memory layer for agents. Agents write useful progress through lifecycle tools and read prior work back through MCP history tools before they start or resume a task.
+
 Add this lifecycle to your agent instructions:
 
 ```text
@@ -107,7 +111,14 @@ Add this lifecycle to your agent instructions:
 5. end_session(summary="...") before the task ends
 ```
 
-On the next session, the agent can call `fetch_past_context` or `search_history` to recover prior decisions, failures, and changed files.
+On the next session, the agent can call `fetch_past_context`, `search_history`, `list_sessions`, or `read_session` to recover prior decisions, failures, changed files, owners, agent names, MCP link ids, tags, and time ranges. In multi-agent projects, this lets Codex, Claude, Gemini, and custom workers hand off context without relying only on chat transcripts.
+
+To check an AI-ready setup without the VS Code extension, run:
+
+```bash
+~/.tarae/bin/tarae verify --agent codex --project-root "$PWD"
+~/.tarae/bin/tarae doctor --project-root "$PWD"
+```
 
 ## Local History
 
@@ -173,7 +184,7 @@ tarae link codex --project-root "$PWD"
 tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 tarae link codex --project-root "$PWD" --fixed-project-root
 tarae verify --agent codex --project-root "$PWD"
-tarae upgrade --ref v0.1.7 --project-root "$PWD"
+tarae upgrade --ref v0.1.8 --project-root "$PWD"
 tarae doctor --project-root "$PWD"
 tarae status --project-root "$PWD"
 tarae unlink codex

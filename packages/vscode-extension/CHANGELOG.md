@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.1.8 - 2026-06-12
 
 - Track unread sessions in the Tarae sidebar with a Sessions badge.
 - Remove the redundant `Tarae: Open Latest Session` command and sidebar item.
 - Track extension-update daemon restart state per workspace.
 - Debounce history refreshes and tolerate transient `.tarae` file read races.
 - Prevent stale Dashboard session/report responses from replacing the selected session.
+- Add a Dashboard Timeline checkbox for hiding `auto_checkpoint` events.
 - Improve Dashboard loading, error recovery, report save failures, and narrow-screen layout behavior.
 
 ## 0.1.7

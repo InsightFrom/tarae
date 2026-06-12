@@ -92,6 +92,21 @@ function getDashboardHtml(webview, nonce) {
       font-size: 12px;
     }
 
+    label.inline-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    label.inline-check input {
+      width: auto;
+      min-height: 0;
+      margin: 0;
+    }
+
     .shell {
       display: grid;
       grid-template-rows: auto auto 1fr;
@@ -496,6 +511,7 @@ function getDashboardHtml(webview, nonce) {
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    const AUTO_CHECKPOINT_EVENT_TYPE = 'auto_checkpoint';
     const persistedUi = vscode.getState() || {};
     const state = {
       projectRoot: '',
@@ -510,6 +526,7 @@ function getDashboardHtml(webview, nonce) {
       sessionsCollapsed: persistedUi.sessionsCollapsed === true,
       hitsCollapsed: persistedUi.hitsCollapsed !== false,
       detailTab: persistedUi.detailTab || 'overview',
+      hideAutoCheckpoints: persistedUi.hideAutoCheckpoints === true,
       savedSearches: Array.isArray(persistedUi.savedSearches) ? persistedUi.savedSearches : [],
       recentSearches: Array.isArray(persistedUi.recentSearches) ? persistedUi.recentSearches : [],
       llm: { provider: 'openai', model: 'gpt-4.1-mini', hasCredentials: false },
@@ -682,6 +699,15 @@ function getDashboardHtml(webview, nonce) {
       }
     });
 
+    els.detail.addEventListener('change', (event) => {
+      const action = event.target.dataset.action;
+      if (action === 'toggleAutoCheckpoints') {
+        state.hideAutoCheckpoints = event.target.checked;
+        persistUiState();
+        renderDetail();
+      }
+    });
+
     function selectSession(sessionId) {
       if (!sessionId) {
         return;
@@ -740,6 +766,7 @@ function getDashboardHtml(webview, nonce) {
         sessionsCollapsed: state.sessionsCollapsed,
         hitsCollapsed: state.hitsCollapsed,
         detailTab: state.detailTab,
+        hideAutoCheckpoints: state.hideAutoCheckpoints,
         savedSearches: state.savedSearches,
         recentSearches: state.recentSearches
       });
@@ -953,10 +980,14 @@ function getDashboardHtml(webview, nonce) {
     function renderDetailTabs(detail) {
       const files = (detail.fileChanges || []).length;
       const events = (detail.events || []).length;
+      const visibleEvents = timelineEvents(detail.events || []).length;
+      const timelineLabel = state.hideAutoCheckpoints && visibleEvents !== events
+        ? 'Timeline ' + visibleEvents + '/' + events
+        : 'Timeline ' + events;
       const agents = summarizeAgents(detail.events || []).length;
       const tabs = [
         ['overview', 'Overview'],
-        ['timeline', 'Timeline ' + events],
+        ['timeline', timelineLabel],
         ['files', 'Files ' + files],
         ['agents', 'Agents ' + agents],
         ['report', 'Report']
@@ -1030,10 +1061,20 @@ function getDashboardHtml(webview, nonce) {
     }
 
     function renderTimeline(events) {
+      const visibleEvents = timelineEvents(events);
+      const autoCheckpointCount = events.filter(isAutoCheckpointEvent).length;
+      const checked = state.hideAutoCheckpoints ? ' checked' : '';
+      const header = '<div class="event-title"><h3>Timeline</h3><label class="inline-check"><input type="checkbox" data-action="toggleAutoCheckpoints"' + checked + '>Hide auto checkpoints</label></div>';
+      const filteredNotice = state.hideAutoCheckpoints && autoCheckpointCount
+        ? '<p class="muted">' + autoCheckpointCount + ' auto checkpoint' + (autoCheckpointCount === 1 ? '' : 's') + ' hidden.</p>'
+        : '';
       if (!events.length) {
-        return '<section class="band"><h3>Timeline</h3><div class="empty">No JSONL events recorded.</div></section>';
+        return '<section class="band">' + header + '<div class="empty">No JSONL events recorded.</div></section>';
       }
-      return '<section class="band"><h3>Timeline</h3><div class="timeline">' + events.map((event) => {
+      if (!visibleEvents.length) {
+        return '<section class="band">' + header + filteredNotice + '<div class="empty">No timeline events after hiding auto checkpoints.</div></section>';
+      }
+      return '<section class="band">' + header + filteredNotice + '<div class="timeline">' + visibleEvents.map((event) => {
         const attribution = event.attribution
           ? '<span class="pill">attribution: ' + escapeHtml(event.attribution.status || 'unknown') + '</span>'
           : '';
@@ -1044,6 +1085,16 @@ function getDashboardHtml(webview, nonce) {
           '<div class="meta">' + metaPill('actor', actor.agent_name || actor.type) + metaPill('link', actor.link_id) + attribution + '</div>' +
         '</div>';
       }).join('') + '</div></section>';
+    }
+
+    function timelineEvents(events) {
+      return state.hideAutoCheckpoints
+        ? events.filter((event) => !isAutoCheckpointEvent(event))
+        : events;
+    }
+
+    function isAutoCheckpointEvent(event) {
+      return event && event.event_type === AUTO_CHECKPOINT_EVENT_TYPE;
     }
 
     function renderAgents(events) {

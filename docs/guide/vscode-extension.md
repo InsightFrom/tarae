@@ -162,6 +162,7 @@ Use `Tarae: Restart Topa Daemon` when you want to restart the current workspace 
 - Unread session count badge for sessions not yet opened as Markdown.
 - Collapsible filters for keyword, file, agent, link, status, tag, and date range, plus saved and recent searches.
 - Session detail tabs for overview, timeline events, file changes, agent attribution, and report generation.
+- Timeline checkbox for hiding noisy `auto_checkpoint` events during review.
 - Report scope preview showing what will and will not be sent to the LLM.
 - Loading and stale-response handling so slow session/report responses do not overwrite the wrong selected session.
 - A `Restart Topa` button that stops only the current workspace daemon.
@@ -216,6 +217,7 @@ Use a project with Tarae history, then verify:
 - `Tarae: Open Dashboard` opens the Webview without starting a local server.
 - The Dashboard filters by keyword, file, agent, link, status, tag, and date range.
 - Selecting a session shows timeline events, file changes, and report scope.
+- The Timeline tab can hide and restore `auto_checkpoint` events with its checkbox.
 - Switching sessions while details or reports are loading does not replace the newly selected session with an older response.
 - `Tarae: List Sessions` shows sessions from `session_index.jsonl`.
 - `Tarae: Search History` finds event-level JSONL matches by text and filters.

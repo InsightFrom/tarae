@@ -12,7 +12,7 @@ The extension reads project-local history from `.tarae/topa/` and opens session 
 - Show an unread count badge for sessions that have not been opened as Markdown.
 - Search objectives, summaries, Markdown, and JSONL session events.
 - Open session Markdown as a read-only virtual document.
-- Open a local-server-free Dashboard Webview for session timelines, file changes, attribution tabs, saved searches, collapsible filters, and responsive narrow-screen layouts.
+- Open a local-server-free Dashboard Webview for session timelines, optional auto-checkpoint hiding, file changes, attribution tabs, saved searches, collapsible filters, and responsive narrow-screen layouts.
 - Restart only the current workspace's `topa` daemon from the Dashboard or command palette.
 - Configure an OpenAI API key in VS Code SecretStorage for session report generation.
 - Preview generated session reports and save them under `.tarae/topa/reports/<session-id>/`.

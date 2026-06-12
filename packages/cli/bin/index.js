@@ -90,7 +90,7 @@ program
 program
   .command('upgrade')
   .description('Upgrade the local Tarae CLI shim and topa binary')
-  .option('--ref <ref>', 'Git branch or tag to install, for example main or v0.1.5')
+  .option('--ref <ref>', 'Git branch or tag to install, for example main or v0.1.8')
   .option('--repo-url <url>', 'Tarae git repository URL')
   .option('--install-dir <path>', 'Tarae source install directory')
   .option('--bin-dir <path>', 'Directory for tarae/topa shims and binaries')

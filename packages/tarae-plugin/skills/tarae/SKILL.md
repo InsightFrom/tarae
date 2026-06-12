@@ -16,6 +16,8 @@ Tarae is a non-invasive local observer for AI coding sessions. The `topa` MCP se
 .tarae/topa/sessions/<session-id>.md
 ```
 
+Use Tarae as a bidirectional project memory layer: write progress with lifecycle tools, then search prior work with history tools before starting or resuming a task.
+
 ## Lifecycle
 
 1. Call `fetch_past_context` before starting substantial work. Include `project_root` when the MCP client does not expose roots/list.
@@ -30,6 +32,8 @@ Tarae is a non-invasive local observer for AI coding sessions. The `topa` MCP se
 - `read_session(project_root, session_id, format)`: read Markdown or JSONL for a session.
 - `search_history(project_root, query, file_path, event_type, agent_name, link_id, session_id, status, tag, after, before, limit)`: search local objective, summaries, errors, logs, file paths, agent/link identity, tags, status, and time ranges.
 - `fetch_past_context(project_root, session_id)`: read one session or recent local context.
+
+Use `search_history` when you need targeted context for a file, prior failure, agent role, MCP link id, tag, status, or date range.
 
 ## Privacy
 

@@ -91,8 +91,30 @@ Expected files:
 Before tagging a release, run:
 
 ```bash
+cd packages/watcher
+cargo fmt --check
+cargo clippy -- -D warnings
+cargo test
+cd ../..
+node --check packages/cli/bin/index.js
+find packages/cli/lib -name '*.js' -exec node --check {} \;
+cd packages/vscode-extension
+npm run check
+cd ../..
 bash -n scripts/install.sh
+pwsh -NoProfile -Command '$null = [System.Management.Automation.PSParser]::Tokenize((Get-Content scripts/install.ps1 -Raw), [ref]$null)'
 git diff --check
 ```
 
-Release assets are built by `.github/workflows/release.yml` when a `v*` tag is pushed.
+Release version files should move together:
+
+```text
+packages/watcher/Cargo.toml
+packages/watcher/Cargo.lock
+packages/cli/package.json
+packages/cli/package-lock.json
+packages/vscode-extension/package.json
+packages/vscode-extension/CHANGELOG.md
+```
+
+Release assets are built by `.github/workflows/release.yml` when a `v*` tag is pushed. The VS Code Marketplace publish remains a manual `.github/workflows/vscode-extension.yml` dispatch with `publish=true`.

@@ -39,6 +39,17 @@ Windows PowerShell:
 
 Restart the target AI application after linking MCP config.
 
+The install script sets up the Tarae CLI and the `topa` MCP runtime. It does not install the VS Code extension. Install the Marketplace extension separately only when you want the human dashboard and report UI.
+
+For an AI-assisted setup, these commands are enough for the agent to install, link, and verify Tarae in a target project:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | bash
+~/.tarae/bin/tarae install --agent codex --project-root "$PWD"
+~/.tarae/bin/tarae verify --agent codex --project-root "$PWD"
+~/.tarae/bin/tarae doctor --project-root "$PWD"
+```
+
 ## Release Integrity
 
 Release archives are downloaded from GitHub Releases. Each `topa-*.tar.gz` release asset has a matching `.sha256` checksum, and release builds publish GitHub artifact attestations.
@@ -83,13 +94,13 @@ tarae --version
 Upgrade to a released version:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.7 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.8 --project-root "$PWD"
 ```
 
 Or rerun the installer for users who installed before the `upgrade` command existed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.7 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.8 bash
 ```
 
 For unreleased branch testing, build `topa` from source instead of downloading the latest release asset:
@@ -134,6 +145,21 @@ tarae verify --agent my-agent --config-path ~/.my-agent/mcp.json --project-root 
 tarae verify --agent codex --project-root "$PWD"
 tarae doctor --project-root "$PWD"
 ```
+
+`verify` checks the local binary, project root, history writeability, MCP config, and the MCP tool list. The smoke test expects Tarae to expose both write-side lifecycle tools and read-side history tools:
+
+```text
+fetch_past_context
+start_session
+checkpoint
+report_issue
+end_session
+list_sessions
+read_session
+search_history
+```
+
+After setup, an agent should use `fetch_past_context` or `search_history` before starting substantial work, then write progress with `start_session`, `checkpoint`, `report_issue`, and `end_session`.
 
 Expected local files after a session:
 

@@ -38,6 +38,8 @@ MCP 설정을 다시 읽도록 대상 AI 앱을 재시작합니다.
 CLI는 `MCP files touched` 요약으로 어떤 설정 파일을 읽고, 백업하고, 썼는지 보여줍니다.
 기본 MCP 설정은 특정 프로젝트에 고정되지 않습니다. Tarae는 MCP `roots/list` 또는 lifecycle 도구의 `project_root` 인자로 프로젝트를 결정합니다.
 
+설치 스크립트는 Tarae CLI와 `topa` MCP 런타임을 설치합니다. VS Code 확장은 사람을 위한 Dashboard가 필요할 때 Marketplace에서 별도로 설치합니다.
+
 지원 에이전트:
 
 ```text
@@ -71,17 +73,26 @@ gemini
 
 ## 에이전트 사용 방식
 
+Tarae는 에이전트를 위한 로컬 프로젝트 메모리 계층으로 동작합니다. 에이전트는 lifecycle 도구로 진행 상황을 기록하고, 다음 작업자는 MCP history 도구로 이전 작업을 검색해 이어받을 수 있습니다.
+
 에이전트 지침에 다음 lifecycle을 추가합니다:
 
 ```text
-1. fetch_past_context()
-2. start_session(objective="...")
+1. fetch_past_context(project_root="...") # roots/list를 사용할 수 없을 때
+2. start_session(objective="...", project_root="...") # roots/list를 사용할 수 없을 때
 3. checkpoint(summary="...")
 4. report_issue(error_message="...")
 5. end_session(summary="...")
 ```
 
-다음 세션에서는 `fetch_past_context`나 `search_history`로 이전 작업 기록을 회수할 수 있습니다.
+다음 세션에서는 `fetch_past_context`, `search_history`, `list_sessions`, `read_session`으로 이전 결정, 실패 로그, 변경 파일, 담당 agent, MCP link id, tag, 시간 범위를 검색할 수 있습니다.
+
+VS Code 확장 없이 AI가 설치와 셋업만 검증하려면 다음 명령이면 충분합니다:
+
+```bash
+~/.tarae/bin/tarae verify --agent codex --project-root "$PWD"
+~/.tarae/bin/tarae doctor --project-root "$PWD"
+```
 
 ## 로컬 히스토리
 

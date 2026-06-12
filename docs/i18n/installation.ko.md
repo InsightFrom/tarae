@@ -35,6 +35,17 @@ Windows PowerShell:
 & "$HOME\.tarae\bin\tarae.ps1" install --agent codex --project-root (Get-Location)
 ```
 
+설치 스크립트는 Tarae CLI와 `topa` MCP 런타임을 설치합니다. VS Code 확장은 설치하지 않습니다. 사람용 Dashboard와 report UI가 필요할 때 Marketplace에서 별도로 설치합니다.
+
+AI가 README를 보고 CLI/MCP 셋업을 진행한다면 다음 순서로 충분합니다:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | bash
+~/.tarae/bin/tarae install --agent codex --project-root "$PWD"
+~/.tarae/bin/tarae verify --agent codex --project-root "$PWD"
+~/.tarae/bin/tarae doctor --project-root "$PWD"
+```
+
 ## PATH 추가
 
 설치 후 CLI는 `~/.tarae/bin` 아래에 있습니다. 위 예시처럼 전체 경로를 쓰거나 shell profile에 추가합니다.
@@ -64,13 +75,13 @@ tarae --version
 릴리스 버전으로 업그레이드:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.5 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.8 --project-root "$PWD"
 ```
 
 `upgrade` 명령이 없던 예전 설치본은 설치 스크립트를 다시 실행합니다:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.5 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.8 bash
 ```
 
 아직 릴리스되지 않은 branch를 검증할 때는 최신 릴리스 asset을 받지 말고 source에서 `topa`를 빌드합니다:
@@ -124,6 +135,21 @@ tarae unlink codex
 tarae verify --agent codex --project-root "$PWD"
 tarae doctor --project-root "$PWD"
 ```
+
+`verify`는 로컬 binary, project root, history 쓰기 가능 여부, MCP 설정, MCP tool 목록을 확인합니다. smoke test는 기록용 lifecycle 도구와 검색용 history 도구가 모두 노출되는지 확인합니다:
+
+```text
+fetch_past_context
+start_session
+checkpoint
+report_issue
+end_session
+list_sessions
+read_session
+search_history
+```
+
+설정 후 에이전트는 작업 시작 전에 `fetch_past_context` 또는 `search_history`로 이전 작업을 찾고, 작업 중에는 `start_session`, `checkpoint`, `report_issue`, `end_session`으로 다음 에이전트가 이어받을 기록을 남기면 됩니다.
 
 세션 이후 생성되는 파일:
 

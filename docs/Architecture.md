@@ -38,6 +38,7 @@ flowchart TB
 
 - `packages/watcher`: Rust crate that builds `topa`. It hosts the stdio bridge and project daemon, watches file changes, collects git metadata, masks sensitive text, and writes local history.
 - `packages/cli`: Node.js CLI for install, link, verify, doctor, status, unlink, and uninstall workflows.
+- `packages/vscode-extension`: VS Code sidebar and Webview Dashboard for reading local history, generating optional reports, and aligning an existing local `tarae`/`topa` runtime with the extension version.
 - `packages/tarae-plugin`: agent-facing skill metadata that describes the Tarae lifecycle.
 - `docs`: public installation, architecture, and contributor documentation.
 
@@ -51,6 +52,7 @@ flowchart TB
 6. The daemon regenerates a Markdown projection for the same session and updates `latest.md`.
 7. Search tools and the VS Code extension scan `session_index.jsonl` and session JSONL files when an agent asks for prior context.
 8. The VS Code extension can render the same local history in a serverless Webview and, when explicitly requested, save generated report Markdown under `reports/`.
+9. After a VS Code extension update, the extension may run the local CLI upgrade flow for an existing `~/.tarae/bin/tarae` install, then stop only the current workspace daemon so later MCP calls use the new `topa`.
 
 ## File Layout
 

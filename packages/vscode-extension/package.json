@@ -2,7 +2,7 @@
   "name": "tarae",
   "displayName": "Tarae",
   "description": "Read local Tarae coding-session history and generate session reports from VS Code.",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "publisher": "insightfrom",
   "license": "MIT",
   "icon": "resources/tarae.png",
@@ -41,6 +41,7 @@
     "onCommand:tarae.configureLlmProvider",
     "onCommand:tarae.generateSessionReport",
     "onCommand:tarae.clearLlmCredentials",
+    "onCommand:tarae.upgradeLocalRuntime",
     "onCommand:tarae.restartTopaDaemon",
     "onCommand:tarae.refreshSessions"
   ],
@@ -98,6 +99,10 @@
         "title": "Tarae: Clear LLM Credentials"
       },
       {
+        "command": "tarae.upgradeLocalRuntime",
+        "title": "Tarae: Upgrade Local Runtime"
+      },
+      {
         "command": "tarae.restartTopaDaemon",
         "title": "Tarae: Restart Topa Daemon"
       }
@@ -122,6 +127,11 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically save generated Tarae reports under .tarae/topa/reports/ after preview generation."
+        },
+        "tarae.runtime.autoUpgrade": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run the local Tarae CLI upgrade flow when the VS Code extension version is newer than the installed tarae/topa runtime."
         }
       }
     },
@@ -141,6 +151,11 @@
           "command": "tarae.restartTopaDaemon",
           "when": "view == tarae.sessions",
           "group": "navigation@3"
+        },
+        {
+          "command": "tarae.upgradeLocalRuntime",
+          "when": "view == tarae.sessions",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [

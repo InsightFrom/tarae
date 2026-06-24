@@ -148,11 +148,20 @@ References:
 - `Tarae: Configure LLM Provider`
 - `Tarae: Generate Session Report`
 - `Tarae: Clear LLM Credentials`
+- `Tarae: Upgrade Local Runtime`
 - `Tarae: Restart Topa Daemon`
 
-After an extension version update, Tarae automatically requests `topa shutdown --project-root <workspace>` for the current workspace only. Restart state is tracked per workspace, so this does not touch or suppress restart handling for other projects. The next Tarae MCP tool call starts a fresh project daemon.
+After an extension version update, Tarae checks the installed local `~/.tarae/bin/tarae` and `~/.tarae/bin/topa` versions. If they are older than the extension, it runs:
 
-Use `Tarae: Restart Topa Daemon` when you want to restart the current workspace daemon manually.
+```bash
+~/.tarae/bin/tarae upgrade --ref v<extension-version> --project-root <workspace> --no-mcp-smoke
+```
+
+That upgrade flow stops only the current workspace daemon before replacing the runtime. The extension then requests `topa shutdown --project-root <workspace>` for the current workspace only. Restart and upgrade state is tracked per workspace, so this does not touch other projects. The next Tarae MCP tool call starts a fresh project daemon.
+
+Use `Tarae: Upgrade Local Runtime` when automatic upgrade fails or when you want to manually align `tarae`/`topa` with the installed extension. Use `Tarae: Restart Topa Daemon` when you only want to restart the current workspace daemon.
+
+The extension does not do first-time installation of the CLI/runtime. Run `scripts/install.sh` or `scripts/install.ps1` once first; the extension only upgrades an existing `~/.tarae/bin/tarae` install.
 
 ## Dashboard
 
@@ -165,6 +174,7 @@ Use `Tarae: Restart Topa Daemon` when you want to restart the current workspace 
 - Timeline checkbox for hiding noisy `auto_checkpoint` events during review.
 - Report scope preview showing what will and will not be sent to the LLM.
 - Loading and stale-response handling so slow session/report responses do not overwrite the wrong selected session.
+- An `Upgrade Runtime` button that aligns local `tarae`/`topa` binaries with the extension version.
 - A `Restart Topa` button that stops only the current workspace daemon.
 
 The Webview receives only sanitized dashboard data from the extension host. It cannot read the workspace filesystem or access API keys directly.
@@ -179,6 +189,7 @@ Settings:
 tarae.llm.provider = openai
 tarae.llm.model = gpt-4.1-mini
 tarae.reports.autoSave = false
+tarae.runtime.autoUpgrade = true
 ```
 
 Report generation uses recorded Tarae history as input: session metadata, JSONL event timeline, checkpoint and issue summaries, file change metadata, and rendered session Markdown. It excludes API keys, raw project file contents, and full raw git diffs.

@@ -73,13 +73,13 @@ tarae --version
 Upgrade the project-local install and restart the AI app so it launches fresh MCP bridge processes:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.8 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.9 --project-root "$PWD"
 ```
 
 If your installed CLI does not have `upgrade` yet, rerun the installer for the target release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.8 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.9 bash
 ```
 
 For unreleased branch testing, build `topa` from the selected source ref:
@@ -156,7 +156,7 @@ The VS Code extension in `packages/vscode-extension` shows local Tarae history f
 
 By default the extension only reads project history. If you configure an OpenAI API key, Tarae stores it in VS Code SecretStorage and uses it from the extension host; the Webview never receives the key. Reports are saved only when you explicitly choose to save them, under `.tarae/topa/reports/<session-id>/`.
 
-After a VS Code extension version update, Tarae automatically restarts only the current workspace's project daemon by requesting `topa shutdown --project-root <workspace>`. Restart state is tracked per workspace, so other project daemons are not affected.
+After a VS Code extension version update, Tarae checks the installed `~/.tarae/bin/tarae` and `~/.tarae/bin/topa` versions. If they are older than the extension, it runs the local `tarae upgrade --ref v<extension-version> --project-root <workspace> --no-mcp-smoke` flow, then restarts only the current workspace's project daemon by requesting `topa shutdown --project-root <workspace>`. Other project daemons are not affected. The extension does not perform first-time CLI/runtime installation; run the install script once first.
 
 Run it from source with the VS Code Extension Development Host, or package it as a local `.vsix` for installation. See [VS Code Extension](docs/guide/vscode-extension.md).
 
@@ -184,7 +184,7 @@ tarae link codex --project-root "$PWD"
 tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 tarae link codex --project-root "$PWD" --fixed-project-root
 tarae verify --agent codex --project-root "$PWD"
-tarae upgrade --ref v0.1.8 --project-root "$PWD"
+tarae upgrade --ref v0.1.9 --project-root "$PWD"
 tarae doctor --project-root "$PWD"
 tarae status --project-root "$PWD"
 tarae unlink codex

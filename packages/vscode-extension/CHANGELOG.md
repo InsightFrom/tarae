@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.9 - 2026-06-24
+
+- Automatically align installed local `tarae`/`topa` runtime binaries with the VS Code extension version after extension updates.
+- Add `Tarae: Upgrade Local Runtime` and a Dashboard `Upgrade Runtime` button for manual retry.
+
 ## 0.1.8 - 2026-06-12
 
 - Track unread sessions in the Tarae sidebar with a Sessions badge.

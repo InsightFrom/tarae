@@ -13,6 +13,7 @@ The extension reads project-local history from `.tarae/topa/` and opens session 
 - Search objectives, summaries, Markdown, and JSONL session events.
 - Open session Markdown as a read-only virtual document.
 - Open a local-server-free Dashboard Webview for session timelines, optional auto-checkpoint hiding, file changes, attribution tabs, saved searches, collapsible filters, and responsive narrow-screen layouts.
+- Upgrade the installed local `tarae`/`topa` runtime to the extension version after extension updates.
 - Restart only the current workspace's `topa` daemon from the Dashboard or command palette.
 - Configure an OpenAI API key in VS Code SecretStorage for session report generation.
 - Preview generated session reports and save them under `.tarae/topa/reports/<session-id>/`.
@@ -36,15 +37,19 @@ You can also open the Tarae Activity Bar item and use the Dashboard entry from t
 - `Tarae: Configure LLM Provider`
 - `Tarae: Generate Session Report`
 - `Tarae: Clear LLM Credentials`
+- `Tarae: Upgrade Local Runtime`
 - `Tarae: Restart Topa Daemon`
 
-When the extension activates after a version update, it automatically runs a project-scoped `topa shutdown --project-root <workspace>` for the current workspace only. Restart state is tracked per workspace, so other projects are not affected. The next Tarae MCP call starts a fresh project daemon.
+When the extension activates after a version update, it checks the installed local `~/.tarae/bin/tarae` and `~/.tarae/bin/topa` versions. If they are older than the extension, Tarae runs `tarae upgrade --ref v<extension-version> --project-root <workspace> --no-mcp-smoke`, then requests a project-scoped `topa shutdown --project-root <workspace>` for the current workspace only. Other project daemons are not affected. The next Tarae MCP call starts a fresh project daemon.
+
+The extension does not perform the first-time CLI/runtime install. Run `scripts/install.sh` or `scripts/install.ps1` once before relying on automatic runtime upgrades.
 
 ## Settings
 
 - `tarae.llm.provider`: currently `openai`.
 - `tarae.llm.model`: model used for generated reports. Default: `gpt-4.1-mini`.
 - `tarae.reports.autoSave`: automatically save generated reports after preview generation. Default: `false`.
+- `tarae.runtime.autoUpgrade`: automatically upgrade installed local `tarae`/`topa` binaries when the extension is newer. Default: `true`.
 
 API keys are stored only with VS Code SecretStorage. They are never sent to the Webview.
 

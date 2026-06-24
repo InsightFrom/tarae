@@ -475,6 +475,7 @@ function getDashboardHtml(webview, nonce) {
       <div class="actions">
         <button id="toggle-search" class="secondary" aria-expanded="false" aria-controls="search-panel">Show Search</button>
         <button id="refresh">Refresh</button>
+        <button id="upgrade-runtime" class="secondary">Upgrade Runtime</button>
         <button id="restart-topa" class="secondary">Restart Topa</button>
         <button id="configure" class="secondary">Configure LLM</button>
         <button id="clear-credentials" class="secondary">Clear Credentials</button>
@@ -632,6 +633,7 @@ function getDashboardHtml(webview, nonce) {
     document.getElementById('refresh').addEventListener('click', () => {
       post('loadDashboard', { selectedSessionId: state.selectedSessionId });
     });
+    document.getElementById('upgrade-runtime').addEventListener('click', () => post('upgradeLocalRuntime'));
     document.getElementById('restart-topa').addEventListener('click', () => post('restartTopaDaemon'));
     document.getElementById('configure').addEventListener('click', () => post('configureLlm'));
     document.getElementById('clear-credentials').addEventListener('click', () => post('clearLlmCredentials'));

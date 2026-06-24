@@ -23,6 +23,10 @@ const {
   saveReport
 } = require('./reports');
 const {
+  upgradeLocalRuntimeAfterExtensionUpdate,
+  upgradeLocalRuntimeCommand
+} = require('./runtimeUpgrade');
+const {
   restartProjectDaemonAfterUpdate,
   restartProjectDaemonCommand
 } = require('./topaDaemon');
@@ -47,7 +51,7 @@ function activate(context) {
     treeDataProvider: provider
   });
   provider.setTreeView(sessionsView);
-  restartProjectDaemonAfterExtensionUpdate(context, provider);
+  syncLocalRuntimeAfterExtensionUpdate(context, provider);
 
   context.subscriptions.push(
     provider,
@@ -68,6 +72,13 @@ function activate(context) {
       await sendLlmState(context);
     }),
     vscode.commands.registerCommand('tarae.generateSessionReport', (item) => generateSessionReportCommand(context, provider, item)),
+    vscode.commands.registerCommand('tarae.upgradeLocalRuntime', async () => {
+      const result = await upgradeLocalRuntimeCommand(context, getProjectRoot());
+      if (result && result.upgraded) {
+        provider.refresh();
+        await sendDashboardData(context, null);
+      }
+    }),
     vscode.commands.registerCommand('tarae.restartTopaDaemon', async () => {
       await restartProjectDaemonCommand(getProjectRoot());
       provider.refresh();
@@ -77,15 +88,37 @@ function activate(context) {
 
 function deactivate() {}
 
-function restartProjectDaemonAfterExtensionUpdate(context, provider) {
-  restartProjectDaemonAfterUpdate(context, getProjectRoot())
+function syncLocalRuntimeAfterExtensionUpdate(context, provider) {
+  const projectRoot = getProjectRoot();
+  let upgradedRuntime = false;
+
+  upgradeLocalRuntimeAfterExtensionUpdate(context, projectRoot)
+    .catch((error) => {
+      const message = error && error.message ? error.message : String(error);
+      vscode.window.showWarningMessage(`Tarae local runtime upgrade failed: ${message}`);
+      return { upgraded: false, reason: 'upgrade-failed' };
+    })
+    .then((result) => {
+      upgradedRuntime = Boolean(result && result.upgraded);
+      if (upgradedRuntime) {
+        provider.refresh();
+        vscode.window.showInformationMessage(
+          `Tarae extension updated. Upgraded local tarae/topa runtime to v${result.targetVersion}.`
+        );
+      } else if (result && result.reason === 'previous-auto-failure') {
+        vscode.window.showWarningMessage(result.message);
+      }
+      return restartProjectDaemonAfterUpdate(context, projectRoot);
+    })
     .then((result) => {
       if (!result || !result.restarted) {
         return;
       }
       provider.refresh();
       vscode.window.showInformationMessage(
-        'Tarae extension updated. Restarted the topa daemon for this workspace.'
+        upgradedRuntime
+          ? 'Restarted the topa daemon for this workspace after the runtime upgrade.'
+          : 'Tarae extension updated. Restarted the topa daemon for this workspace.'
       );
     })
     .catch((error) => {
@@ -359,6 +392,15 @@ async function handleDashboardMessage(context, provider, message) {
     case 'restartTopaDaemon':
       await restartProjectDaemonCommand(getProjectRoot());
       provider.refresh();
+      break;
+    case 'upgradeLocalRuntime':
+      {
+        const result = await upgradeLocalRuntimeCommand(context, getProjectRoot());
+        if (result && result.upgraded) {
+          provider.refresh();
+          await sendDashboardData(context, null);
+        }
+      }
       break;
     case 'generateReport':
       await generateDashboardReport(context, message.sessionId);

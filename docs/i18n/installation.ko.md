@@ -35,7 +35,7 @@ Windows PowerShell:
 & "$HOME\.tarae\bin\tarae.ps1" install --agent codex --project-root (Get-Location)
 ```
 
-설치 스크립트는 Tarae CLI와 `topa` MCP 런타임을 설치합니다. VS Code 확장은 설치하지 않습니다. 사람용 Dashboard와 report UI가 필요할 때 Marketplace에서 별도로 설치합니다.
+설치 스크립트는 Tarae CLI와 `topa` MCP 런타임을 설치합니다. VS Code 확장은 설치하지 않습니다. 사람용 Dashboard와 report UI가 필요할 때 Marketplace에서 별도로 설치합니다. 확장은 최초 설치를 대신하지 않지만, 이미 설치된 `~/.tarae/bin/tarae`와 `~/.tarae/bin/topa`가 확장보다 오래된 경우 확장 업데이트 후 같은 버전으로 자동 업그레이드할 수 있습니다.
 
 AI가 README를 보고 CLI/MCP 셋업을 진행한다면 다음 순서로 충분합니다:
 
@@ -75,13 +75,15 @@ tarae --version
 릴리스 버전으로 업그레이드:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.8 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.9 --project-root "$PWD"
 ```
+
+VS Code 확장을 사용하는 경우 확장 업데이트 후 위 업그레이드가 자동으로 실행됩니다. 자동 업그레이드는 현재 워크스페이스의 `topa` daemon만 중지하고 다른 프로젝트에는 영향을 주지 않습니다. 실패했거나 즉시 재시도하려면 Command Palette에서 `Tarae: Upgrade Local Runtime`을 실행합니다.
 
 `upgrade` 명령이 없던 예전 설치본은 설치 스크립트를 다시 실행합니다:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.8 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.9 bash
 ```
 
 아직 릴리스되지 않은 branch를 검증할 때는 최신 릴리스 asset을 받지 말고 source에서 `topa`를 빌드합니다:

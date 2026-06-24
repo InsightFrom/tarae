@@ -38,7 +38,7 @@ MCP 설정을 다시 읽도록 대상 AI 앱을 재시작합니다.
 CLI는 `MCP files touched` 요약으로 어떤 설정 파일을 읽고, 백업하고, 썼는지 보여줍니다.
 기본 MCP 설정은 특정 프로젝트에 고정되지 않습니다. Tarae는 MCP `roots/list` 또는 lifecycle 도구의 `project_root` 인자로 프로젝트를 결정합니다.
 
-설치 스크립트는 Tarae CLI와 `topa` MCP 런타임을 설치합니다. VS Code 확장은 사람을 위한 Dashboard가 필요할 때 Marketplace에서 별도로 설치합니다.
+설치 스크립트는 Tarae CLI와 `topa` MCP 런타임을 설치합니다. VS Code 확장은 사람을 위한 Dashboard가 필요할 때 Marketplace에서 별도로 설치합니다. 확장은 최초 설치를 대신하지 않지만, 이미 설치된 `~/.tarae/bin/tarae`와 `~/.tarae/bin/topa`가 확장보다 오래된 경우 확장 업데이트 후 같은 버전으로 자동 업그레이드할 수 있습니다.
 
 지원 에이전트:
 

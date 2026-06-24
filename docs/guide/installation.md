@@ -39,7 +39,7 @@ Windows PowerShell:
 
 Restart the target AI application after linking MCP config.
 
-The install script sets up the Tarae CLI and the `topa` MCP runtime. It does not install the VS Code extension. Install the Marketplace extension separately only when you want the human dashboard and report UI.
+The install script sets up the Tarae CLI and the `topa` MCP runtime. It does not install the VS Code extension. Install the Marketplace extension separately only when you want the human dashboard and report UI. The extension does not replace first-time CLI/runtime setup, but after it is installed it can automatically upgrade an existing `~/.tarae/bin/tarae` and `~/.tarae/bin/topa` runtime to match the extension version.
 
 For an AI-assisted setup, these commands are enough for the agent to install, link, and verify Tarae in a target project:
 
@@ -94,13 +94,15 @@ tarae --version
 Upgrade to a released version:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.8 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.9 --project-root "$PWD"
 ```
+
+If the VS Code extension is installed, it runs the same upgrade flow automatically after an extension update when the local runtime is older. The extension stops only the current workspace's `topa` daemon, and you can retry manually with `Tarae: Upgrade Local Runtime`.
 
 Or rerun the installer for users who installed before the `upgrade` command existed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.8 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.9 bash
 ```
 
 For unreleased branch testing, build `topa` from source instead of downloading the latest release asset:

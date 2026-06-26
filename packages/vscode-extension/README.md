@@ -2,7 +2,7 @@
 
 [![Install Tarae in VS Code](https://img.shields.io/badge/VS%20Code-Install%20Tarae-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=insightfrom.tarae)
 
-Tarae is a VS Code sidebar and Dashboard Webview for local Tarae coding-session history.
+Tarae is a VS Code sidebar, Runtime Webview, and Dashboard Webview for local Tarae coding-session history.
 
 The extension reads project-local history from `.tarae/topa/` and opens session Markdown without writing to project history. Optional LLM reports are written only when you explicitly save a generated report.
 
@@ -13,6 +13,7 @@ The extension reads project-local history from `.tarae/topa/` and opens session 
 - Search objectives, summaries, Markdown, and JSONL session events.
 - Open session Markdown as a read-only virtual document.
 - Open a local-server-free Dashboard Webview for session timelines, optional auto-checkpoint hiding, file changes, attribution tabs, saved searches, collapsible filters, and responsive narrow-screen layouts.
+- Show a Runtime Webview for installed `tarae`/`topa` versions, process state, update-needed state, and current workspace daemon health.
 - Upgrade the installed local `tarae`/`topa` runtime to the extension version after extension updates.
 - Restart only the current workspace's `topa` daemon from the Dashboard or command palette.
 - Configure an OpenAI API key in VS Code SecretStorage for session report generation.
@@ -26,7 +27,7 @@ Install Tarae in a workspace and record at least one session so the project cont
 
 Install Tarae from the Visual Studio Marketplace, open a workspace that contains `.tarae/topa/`, then run `Tarae: Open Dashboard` from the Command Palette.
 
-You can also open the Tarae Activity Bar item and use the Dashboard entry from the sidebar.
+You can also open the Tarae Activity Bar item to see the Runtime Webview and Sessions list.
 
 ## Commands
 

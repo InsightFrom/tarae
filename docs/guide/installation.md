@@ -94,7 +94,7 @@ tarae --version
 Upgrade to a released version:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.9 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.10 --project-root "$PWD"
 ```
 
 If the VS Code extension is installed, it runs the same upgrade flow automatically after an extension update when the local runtime is older. The extension stops only the current workspace's `topa` daemon, and you can retry manually with `Tarae: Upgrade Local Runtime`.
@@ -102,7 +102,7 @@ If the VS Code extension is installed, it runs the same upgrade flow automatical
 Or rerun the installer for users who installed before the `upgrade` command existed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.9 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.10 bash
 ```
 
 For unreleased branch testing, build `topa` from source instead of downloading the latest release asset:

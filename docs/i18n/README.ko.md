@@ -85,6 +85,8 @@ Tarae는 에이전트를 위한 로컬 프로젝트 메모리 계층으로 동�
 5. end_session(summary="...")
 ```
 
+`checkpoint.summary`와 `end_session.summary`는 반드시 사용자 대화 언어로 작성합니다. 사용자가 한국어로 작업 중이면 세션 기록도 한국어로 남깁니다.
+
 다음 세션에서는 `fetch_past_context`, `search_history`, `list_sessions`, `read_session`으로 이전 결정, 실패 로그, 변경 파일, 담당 agent, MCP link id, tag, 시간 범위를 검색할 수 있습니다.
 
 VS Code 확장 없이 AI가 설치와 셋업만 검증하려면 다음 명령이면 충분합니다:

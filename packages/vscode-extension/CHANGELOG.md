@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.10 - 2026-06-26
+
+- Add a Tarae Activity Bar Runtime Webview for installed `tarae`/`topa` versions, process state, update-needed state, and current workspace daemon health.
+- Strengthen MCP checkpoint and session-end prompt guidance so summaries are written in the user's language.
+
 ## 0.1.9 - 2026-06-24
 
 - Automatically align installed local `tarae`/`topa` runtime binaries with the VS Code extension version after extension updates.

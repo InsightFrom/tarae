@@ -14,7 +14,7 @@ Install the published extension from the Marketplace page or with the VS Code CL
 code --install-extension insightfrom.tarae
 ```
 
-Then open a workspace that contains `.tarae/topa/` and run `Tarae: Open Dashboard` from the Command Palette. The same Dashboard is also available from the Tarae Activity Bar sidebar.
+Then open a workspace that contains `.tarae/topa/`. The Tarae Activity Bar shows a Runtime Webview plus the Sessions list, and `Tarae: Open Dashboard` opens the detailed Dashboard panel.
 
 ## What It Reads
 
@@ -163,6 +163,15 @@ Use `Tarae: Upgrade Local Runtime` when automatic upgrade fails or when you want
 
 The extension does not do first-time installation of the CLI/runtime. Run `scripts/install.sh` or `scripts/install.ps1` once first; the extension only upgrades an existing `~/.tarae/bin/tarae` install.
 
+## Runtime Webview
+
+The Tarae Activity Bar includes a `Runtime` WebviewView with:
+
+- Compact status icons for `tarae`, `topa`, the current workspace daemon, and update-needed state.
+- Installed `tarae`/`topa` version and process state.
+- Current workspace daemon health without exposing the daemon auth token to the Webview.
+- Buttons for `Refresh`, `Upgrade Runtime`, `Restart Topa`, and `Open Dashboard`.
+
 ## Dashboard
 
 `Tarae: Open Dashboard` opens a Webview with:
@@ -174,10 +183,10 @@ The extension does not do first-time installation of the CLI/runtime. Run `scrip
 - Timeline checkbox for hiding noisy `auto_checkpoint` events during review.
 - Report scope preview showing what will and will not be sent to the LLM.
 - Loading and stale-response handling so slow session/report responses do not overwrite the wrong selected session.
-- An `Upgrade Runtime` button that aligns local `tarae`/`topa` binaries with the extension version.
-- A `Restart Topa` button that stops only the current workspace daemon.
+- Runtime status cards for installed `tarae`/`topa` versions, `topa` process counts, update-needed state, and current workspace daemon health.
+- Runtime card actions for upgrading local `tarae`/`topa` binaries to the extension version and restarting only the current workspace daemon.
 
-The Webview receives only sanitized dashboard data from the extension host. It cannot read the workspace filesystem or access API keys directly.
+The Webview receives only sanitized dashboard data from the extension host. It cannot read the workspace filesystem, access API keys directly, or receive the daemon auth token used for the health check.
 
 ## LLM Reports
 
@@ -225,7 +234,9 @@ type:auto_checkpoint file:packages/cli after:2026-05-27
 Use a project with Tarae history, then verify:
 
 - The Tarae sidebar lists session entries and shows an unread count badge for sessions not yet opened as Markdown.
+- The Tarae Activity Bar `Runtime` Webview shows `tarae`, `topa`, daemon, and version status icons.
 - `Tarae: Open Dashboard` opens the Webview without starting a local server.
+- The Dashboard shows installed `tarae`/`topa` versions, update-needed state, and whether the current workspace daemon is healthy.
 - The Dashboard filters by keyword, file, agent, link, status, tag, and date range.
 - Selecting a session shows timeline events, file changes, and report scope.
 - The Timeline tab can hide and restore `auto_checkpoint` events with its checkbox.

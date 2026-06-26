@@ -426,7 +426,7 @@ pub struct StartSessionParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CheckpointParams {
-    /// Brief summary of what was just done. Write in the user's language.
+    /// Brief summary of what was just done. MUST be written in the user's language from the conversation. If the user is writing Korean, write this summary in Korean.
     pub summary: String,
     /// Project root directory for this checkpoint. Usually omitted after start_session.
     #[serde(default)]
@@ -487,7 +487,7 @@ pub struct ReportIssueParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EndSessionParams {
-    /// Final summary of the session. Write in the user's language.
+    /// Final summary of the session. MUST be written in the user's language from the conversation. If the user is writing Korean, write this summary in Korean.
     #[serde(default)]
     pub summary: Option<String>,
     /// Project root directory for the session to end. Usually omitted unless multiple project sessions are active.
@@ -1136,7 +1136,7 @@ impl TaraeServer {
     }
 
     #[tool(
-        description = "Save a checkpoint of current progress. Call after completing a logical unit of work."
+        description = "Save a checkpoint of current progress. Call after completing a logical unit of work. The summary MUST be written in the user's language from the conversation; if the user is writing Korean, write the summary in Korean."
     )]
     async fn checkpoint(
         &self,
@@ -1163,7 +1163,9 @@ impl TaraeServer {
         self.core.report_issue_for_root(project_root, params).await
     }
 
-    #[tool(description = "End the current coding session.")]
+    #[tool(
+        description = "End the current coding session. The summary MUST be written in the user's language from the conversation; if the user is writing Korean, write the summary in Korean."
+    )]
     async fn end_session(
         &self,
         peer: Peer<RoleServer>,
@@ -1258,7 +1260,7 @@ impl TaraeBridgeServer {
     }
 
     #[tool(
-        description = "Save a checkpoint of current progress. Call after completing a logical unit of work."
+        description = "Save a checkpoint of current progress. Call after completing a logical unit of work. The summary MUST be written in the user's language from the conversation; if the user is writing Korean, write the summary in Korean."
     )]
     async fn checkpoint(
         &self,
@@ -1288,7 +1290,9 @@ impl TaraeBridgeServer {
             .await
     }
 
-    #[tool(description = "End the current coding session.")]
+    #[tool(
+        description = "End the current coding session. The summary MUST be written in the user's language from the conversation; if the user is writing Korean, write the summary in Korean."
+    )]
     async fn end_session(
         &self,
         peer: Peer<RoleServer>,
@@ -1447,7 +1451,7 @@ impl ServerHandler for TaraeServer {
                 .build(),
         )
         .with_server_info(Implementation::from_build_env())
-        .with_instructions("Topa (톺아) — Tarae's non-invasive local observer & MCP server. Use start_session to begin tracking, checkpoint to save progress, report_issue to log errors, end_session to close work, and list_sessions/read_session/search_history/fetch_past_context for local project history. Write checkpoint and session summaries in the user's language; if unsure, use TARAE_SUMMARY_LANGUAGE or Korean.")
+        .with_instructions("Topa (톺아) — Tarae's non-invasive local observer & MCP server. Use start_session to begin tracking, checkpoint to save progress, report_issue to log errors, end_session to close work, and list_sessions/read_session/search_history/fetch_past_context for local project history. IMPORTANT: checkpoint.summary and end_session.summary MUST be written in the user's language from the conversation. If the user writes in Korean, write summaries in Korean. If unsure, use TARAE_SUMMARY_LANGUAGE or Korean.")
     }
 }
 
@@ -1456,7 +1460,7 @@ impl ServerHandler for TaraeBridgeServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())
-            .with_instructions("Topa (톺아) — Tarae's stdio MCP bridge. Tool calls are forwarded to one project-scoped topa daemon that owns watching, history writes, and active session state. Use start_session to begin tracking, checkpoint to save progress, report_issue to log errors, end_session to close work, and list_sessions/read_session/search_history/fetch_past_context for local project history.")
+            .with_instructions("Topa (톺아) — Tarae's stdio MCP bridge. Tool calls are forwarded to one project-scoped topa daemon that owns watching, history writes, and active session state. Use start_session to begin tracking, checkpoint to save progress, report_issue to log errors, end_session to close work, and list_sessions/read_session/search_history/fetch_past_context for local project history. IMPORTANT: checkpoint.summary and end_session.summary MUST be written in the user's language from the conversation. If the user writes in Korean, write summaries in Korean. If unsure, use TARAE_SUMMARY_LANGUAGE or Korean.")
     }
 }
 

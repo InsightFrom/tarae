@@ -73,13 +73,13 @@ tarae --version
 Upgrade the project-local install and restart the AI app so it launches fresh MCP bridge processes:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.9 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.10 --project-root "$PWD"
 ```
 
 If your installed CLI does not have `upgrade` yet, rerun the installer for the target release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.9 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.10 bash
 ```
 
 For unreleased branch testing, build `topa` from the selected source ref:
@@ -110,6 +110,8 @@ Add this lifecycle to your agent instructions:
 4. report_issue(error_message="...") when a build, test, or runtime failure happens
 5. end_session(summary="...") before the task ends
 ```
+
+Write `checkpoint.summary` and `end_session.summary` in the user's language from the conversation. For Korean work, write Korean session history.
 
 On the next session, the agent can call `fetch_past_context`, `search_history`, `list_sessions`, or `read_session` to recover prior decisions, failures, changed files, owners, agent names, MCP link ids, tags, and time ranges. In multi-agent projects, this lets Codex, Claude, Gemini, and custom workers hand off context without relying only on chat transcripts.
 
@@ -152,7 +154,7 @@ The JSONL file is the canonical event log using `topa-event-v1`. The Markdown fi
 
 [![Install Tarae in VS Code](https://img.shields.io/badge/VS%20Code-Install%20Tarae-007ACC?logo=visualstudiocode&logoColor=white)](https://marketplace.visualstudio.com/items?itemName=insightfrom.tarae)
 
-The VS Code extension in `packages/vscode-extension` shows local Tarae history from `.tarae/topa/` in a sidebar and Dashboard Webview. It can list sessions with unread indicators, search event history, inspect session timelines, and generate optional LLM session reports.
+The VS Code extension in `packages/vscode-extension` shows local Tarae history from `.tarae/topa/` in a sidebar, Runtime Webview, and Dashboard Webview. It can list sessions with unread indicators, search event history, inspect session timelines, show local `tarae`/`topa` runtime, update-needed, and workspace daemon status, and generate optional LLM session reports.
 
 By default the extension only reads project history. If you configure an OpenAI API key, Tarae stores it in VS Code SecretStorage and uses it from the extension host; the Webview never receives the key. Reports are saved only when you explicitly choose to save them, under `.tarae/topa/reports/<session-id>/`.
 
@@ -184,7 +186,7 @@ tarae link codex --project-root "$PWD"
 tarae link my-agent --config-path ~/.my-agent/mcp.json --project-root "$PWD"
 tarae link codex --project-root "$PWD" --fixed-project-root
 tarae verify --agent codex --project-root "$PWD"
-tarae upgrade --ref v0.1.9 --project-root "$PWD"
+tarae upgrade --ref v0.1.10 --project-root "$PWD"
 tarae doctor --project-root "$PWD"
 tarae status --project-root "$PWD"
 tarae unlink codex

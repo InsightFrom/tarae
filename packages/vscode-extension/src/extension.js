@@ -27,6 +27,12 @@ const {
   upgradeLocalRuntimeCommand
 } = require('./runtimeUpgrade');
 const {
+  readRuntimeStatus
+} = require('./runtimeStatus');
+const {
+  TaraeRuntimeViewProvider
+} = require('./runtimeView');
+const {
   restartProjectDaemonAfterUpdate,
   restartProjectDaemonCommand
 } = require('./topaDaemon');
@@ -42,6 +48,7 @@ const HISTORY_REFRESH_DEBOUNCE_MS = 200;
 
 let dashboardPanel = null;
 let pendingDashboardSessionId = '';
+let runtimeViewProvider = null;
 const reportCache = new Map();
 
 function activate(context) {
@@ -51,14 +58,42 @@ function activate(context) {
     treeDataProvider: provider
   });
   provider.setTreeView(sessionsView);
-  syncLocalRuntimeAfterExtensionUpdate(context, provider);
+  runtimeViewProvider = new TaraeRuntimeViewProvider({
+    getNonce,
+    readRuntimeStatus: (forceRuntime) => readCurrentRuntimeStatus(context, forceRuntime),
+    upgradeLocalRuntime: async () => {
+      const result = await upgradeLocalRuntimeCommand(context, getProjectRoot());
+      if (result && result.upgraded) {
+        provider.refresh();
+      }
+      await sendDashboardData(context, null, { forceRuntime: true });
+    },
+    restartTopaDaemon: async () => {
+      await restartProjectDaemonCommand(getProjectRoot());
+      provider.refresh();
+      await sendDashboardData(context, null, { forceRuntime: true });
+    },
+    openDashboard: () => openDashboard(context, provider)
+  });
+  syncLocalRuntimeAfterExtensionUpdate(context, provider, runtimeViewProvider);
 
   context.subscriptions.push(
     provider,
     sessionsView,
+    vscode.window.registerWebviewViewProvider('tarae.runtime', runtimeViewProvider, {
+      webviewOptions: {
+        retainContextWhenHidden: true
+      }
+    }),
     vscode.workspace.registerTextDocumentContentProvider(TARAE_SCHEME, contentProvider),
-    vscode.workspace.onDidChangeWorkspaceFolders(() => provider.refresh()),
-    vscode.commands.registerCommand('tarae.refreshSessions', () => provider.refresh()),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      provider.refresh();
+      runtimeViewProvider.refresh(true).catch((error) => console.warn(`Failed to refresh Tarae runtime view: ${error && error.message ? error.message : error}`));
+    }),
+    vscode.commands.registerCommand('tarae.refreshSessions', () => {
+      provider.refresh();
+      runtimeViewProvider.refresh(true).catch((error) => console.warn(`Failed to refresh Tarae runtime view: ${error && error.message ? error.message : error}`));
+    }),
     vscode.commands.registerCommand('tarae.openDashboard', (item) => openDashboard(context, provider, item)),
     vscode.commands.registerCommand('tarae.listSessions', () => listSessions(provider)),
     vscode.commands.registerCommand('tarae.searchHistory', () => searchHistoryCommand(provider)),
@@ -76,19 +111,22 @@ function activate(context) {
       const result = await upgradeLocalRuntimeCommand(context, getProjectRoot());
       if (result && result.upgraded) {
         provider.refresh();
-        await sendDashboardData(context, null);
       }
+      await sendDashboardData(context, null, { forceRuntime: true });
+      await runtimeViewProvider.refresh(true);
     }),
     vscode.commands.registerCommand('tarae.restartTopaDaemon', async () => {
       await restartProjectDaemonCommand(getProjectRoot());
       provider.refresh();
+      await sendDashboardData(context, null, { forceRuntime: true });
+      await runtimeViewProvider.refresh(true);
     })
   );
 }
 
 function deactivate() {}
 
-function syncLocalRuntimeAfterExtensionUpdate(context, provider) {
+function syncLocalRuntimeAfterExtensionUpdate(context, provider, runtimeView) {
   const projectRoot = getProjectRoot();
   let upgradedRuntime = false;
 
@@ -102,6 +140,7 @@ function syncLocalRuntimeAfterExtensionUpdate(context, provider) {
       upgradedRuntime = Boolean(result && result.upgraded);
       if (upgradedRuntime) {
         provider.refresh();
+        runtimeView.refresh(true).catch((error) => console.warn(`Failed to refresh Tarae runtime view: ${error && error.message ? error.message : error}`));
         vscode.window.showInformationMessage(
           `Tarae extension updated. Upgraded local tarae/topa runtime to v${result.targetVersion}.`
         );
@@ -115,6 +154,7 @@ function syncLocalRuntimeAfterExtensionUpdate(context, provider) {
         return;
       }
       provider.refresh();
+      runtimeView.refresh(true).catch((error) => console.warn(`Failed to refresh Tarae runtime view: ${error && error.message ? error.message : error}`));
       vscode.window.showInformationMessage(
         upgradedRuntime
           ? 'Restarted the topa daemon for this workspace after the runtime upgrade.'
@@ -370,7 +410,9 @@ async function openDashboard(context, provider, item) {
 async function handleDashboardMessage(context, provider, message) {
   switch (message.type) {
     case 'loadDashboard':
-      await sendDashboardData(context, message.selectedSessionId || '');
+      await sendDashboardData(context, message.selectedSessionId || '', {
+        forceRuntime: Boolean(message.forceRuntime)
+      });
       break;
     case 'loadSession':
       await sendSessionDetail(message.sessionId);
@@ -392,14 +434,17 @@ async function handleDashboardMessage(context, provider, message) {
     case 'restartTopaDaemon':
       await restartProjectDaemonCommand(getProjectRoot());
       provider.refresh();
+      await sendDashboardData(context, null, { forceRuntime: true });
+      await refreshRuntimeView(true);
       break;
     case 'upgradeLocalRuntime':
       {
         const result = await upgradeLocalRuntimeCommand(context, getProjectRoot());
         if (result && result.upgraded) {
           provider.refresh();
-          await sendDashboardData(context, null);
         }
+        await sendDashboardData(context, null, { forceRuntime: true });
+        await refreshRuntimeView(true);
       }
       break;
     case 'generateReport':
@@ -413,7 +458,7 @@ async function handleDashboardMessage(context, provider, message) {
   }
 }
 
-async function sendDashboardData(context, preferredSessionId = '') {
+async function sendDashboardData(context, preferredSessionId = '', options = {}) {
   if (!dashboardPanel) {
     return;
   }
@@ -422,10 +467,12 @@ async function sendDashboardData(context, preferredSessionId = '') {
   const data = root
     ? readDashboardData(root)
     : { projectRoot: '', latestMarkdownPath: '', activeSessions: [], sessions: [] };
+  const runtime = await readCurrentRuntimeStatus(context, Boolean(options.forceRuntime));
   dashboardPanel.webview.postMessage({
     type: 'dashboardData',
     data,
-    llm: await getLlmState(context)
+    llm: await getLlmState(context),
+    runtime
   });
 
   const shouldAutoSelect = preferredSessionId !== null;
@@ -436,6 +483,21 @@ async function sendDashboardData(context, preferredSessionId = '') {
   if (sessionId) {
     await sendSessionDetail(sessionId);
   }
+}
+
+function readCurrentRuntimeStatus(context, forceRuntime = false) {
+  const root = getProjectRoot();
+  return readRuntimeStatus(root || '', {
+    force: Boolean(forceRuntime),
+    targetVersion: context.extension.packageJSON.version || ''
+  });
+}
+
+function refreshRuntimeView(forceRuntime = false) {
+  if (!runtimeViewProvider) {
+    return Promise.resolve();
+  }
+  return runtimeViewProvider.refresh(forceRuntime);
 }
 
 async function sendSessionDetail(sessionId) {

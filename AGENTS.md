@@ -10,6 +10,8 @@ Use the Tarae MCP tools for coding tasks when available:
 4. `report_issue(error_message=...)` on build/test/runtime failure
 5. `end_session(summary=...)`
 
+`checkpoint.summary` and `end_session.summary` MUST be written in the user's language from the conversation. If the user is writing Korean, write the summaries in Korean.
+
 Tarae writes local project history under `.tarae/topa/`.
 
 ## Project Structure

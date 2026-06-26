@@ -1,6 +1,6 @@
 [package]
 name = "tarae-watcher"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2021"
 description = "Topa (톺아) — Tarae's non-invasive local observer & MCP server"
 license = "MIT"

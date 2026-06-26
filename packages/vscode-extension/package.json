@@ -2,7 +2,7 @@
   "name": "tarae",
   "displayName": "Tarae",
   "description": "Read local Tarae coding-session history and generate session reports from VS Code.",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "publisher": "insightfrom",
   "license": "MIT",
   "icon": "resources/tarae.png",
@@ -33,6 +33,7 @@
     "publish": "npx --yes @vscode/vsce publish"
   },
   "activationEvents": [
+    "onView:tarae.runtime",
     "onView:tarae.sessions",
     "onCommand:tarae.openDashboard",
     "onCommand:tarae.listSessions",
@@ -58,6 +59,11 @@
     },
     "views": {
       "tarae": [
+        {
+          "type": "webview",
+          "id": "tarae.runtime",
+          "name": "Runtime"
+        },
         {
           "id": "tarae.sessions",
           "name": "Sessions"
@@ -146,16 +152,6 @@
           "command": "tarae.refreshSessions",
           "when": "view == tarae.sessions",
           "group": "navigation@2"
-        },
-        {
-          "command": "tarae.restartTopaDaemon",
-          "when": "view == tarae.sessions",
-          "group": "navigation@3"
-        },
-        {
-          "command": "tarae.upgradeLocalRuntime",
-          "when": "view == tarae.sessions",
-          "group": "navigation@4"
         }
       ],
       "view/item/context": [

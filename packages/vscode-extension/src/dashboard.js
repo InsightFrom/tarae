@@ -109,7 +109,7 @@ function getDashboardHtml(webview, nonce) {
 
     .shell {
       display: grid;
-      grid-template-rows: auto auto 1fr;
+      grid-template-rows: auto auto auto 1fr;
       height: 100vh;
       min-height: 520px;
     }
@@ -153,6 +153,132 @@ function getDashboardHtml(webview, nonce) {
 
     .actions button {
       white-space: nowrap;
+    }
+
+    .status-icons {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 28px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 4px;
+      background: var(--vscode-editorWidget-background);
+    }
+
+    .status-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 22px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 1;
+      user-select: none;
+    }
+
+    .tone-ok {
+      border-color: var(--vscode-testing-iconPassed, #3fb950);
+      color: var(--vscode-testing-iconPassed, #3fb950);
+    }
+
+    .tone-warn {
+      border-color: var(--vscode-editorWarning-foreground, #d29922);
+      color: var(--vscode-editorWarning-foreground, #d29922);
+    }
+
+    .tone-bad {
+      border-color: var(--vscode-errorForeground, #f85149);
+      color: var(--vscode-errorForeground, #f85149);
+    }
+
+    .tone-idle {
+      color: var(--muted);
+    }
+
+    .runtime-strip {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: stretch;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+
+    .runtime-card {
+      display: grid;
+      gap: 2px;
+      min-width: 180px;
+      max-width: 100%;
+      flex: 1 1 210px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 7px 9px;
+      background: var(--vscode-editorWidget-background);
+    }
+
+    .runtime-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .runtime-heading strong {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .runtime-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .runtime-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+
+    .runtime-actions button {
+      min-height: 24px;
+      padding: 3px 8px;
+      font-size: 12px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .status-ok {
+      background: var(--vscode-testing-iconPassed, #3fb950);
+    }
+
+    .status-warn {
+      background: var(--vscode-editorWarning-foreground, #d29922);
+    }
+
+    .status-bad {
+      background: var(--vscode-errorForeground, #f85149);
+    }
+
+    .status-idle {
+      background: var(--muted);
     }
 
     .filters {
@@ -451,6 +577,15 @@ function getDashboardHtml(webview, nonce) {
         width: 100%;
       }
 
+      .status-icons {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .runtime-card {
+        flex-basis: 100%;
+      }
+
       .filters {
         grid-template-columns: 1fr;
       }
@@ -475,12 +610,13 @@ function getDashboardHtml(webview, nonce) {
       <div class="actions">
         <button id="toggle-search" class="secondary" aria-expanded="false" aria-controls="search-panel">Show Search</button>
         <button id="refresh">Refresh</button>
-        <button id="upgrade-runtime" class="secondary">Upgrade Runtime</button>
-        <button id="restart-topa" class="secondary">Restart Topa</button>
+        <div id="runtime-icons" class="status-icons" aria-label="Runtime status"></div>
         <button id="configure" class="secondary">Configure LLM</button>
         <button id="clear-credentials" class="secondary">Clear Credentials</button>
       </div>
     </header>
+
+    <section id="runtime-status" class="runtime-strip" aria-live="polite"></section>
 
     <section id="search-panel" class="filters" hidden>
       <label>Keyword<input id="filter-keyword" type="search" placeholder="summary, objective, error"></label>
@@ -531,12 +667,15 @@ function getDashboardHtml(webview, nonce) {
       savedSearches: Array.isArray(persistedUi.savedSearches) ? persistedUi.savedSearches : [],
       recentSearches: Array.isArray(persistedUi.recentSearches) ? persistedUi.recentSearches : [],
       llm: { provider: 'openai', model: 'gpt-4.1-mini', hasCredentials: false },
+      runtime: null,
       generatedReport: null,
       pendingReportSessionId: ''
     };
 
     const els = {
       projectRoot: document.getElementById('project-root'),
+      runtimeIcons: document.getElementById('runtime-icons'),
+      runtimeStatus: document.getElementById('runtime-status'),
       sessionList: document.getElementById('session-list'),
       hitList: document.getElementById('hit-list'),
       sessionCount: document.getElementById('session-count'),
@@ -564,7 +703,9 @@ function getDashboardHtml(webview, nonce) {
         state.sessions = message.data.sessions || [];
         state.activeSessions = message.data.activeSessions || [];
         state.llm = message.llm || state.llm;
+        state.runtime = message.runtime || state.runtime;
         els.projectRoot.textContent = state.projectRoot || 'No workspace folder';
+        renderRuntimeStatus();
         renderSearchPresets();
         applySidebarSectionState();
         renderSessions();
@@ -631,10 +772,8 @@ function getDashboardHtml(webview, nonce) {
     });
 
     document.getElementById('refresh').addEventListener('click', () => {
-      post('loadDashboard', { selectedSessionId: state.selectedSessionId });
+      post('loadDashboard', { selectedSessionId: state.selectedSessionId, forceRuntime: true });
     });
-    document.getElementById('upgrade-runtime').addEventListener('click', () => post('upgradeLocalRuntime'));
-    document.getElementById('restart-topa').addEventListener('click', () => post('restartTopaDaemon'));
     document.getElementById('configure').addEventListener('click', () => post('configureLlm'));
     document.getElementById('clear-credentials').addEventListener('click', () => post('clearLlmCredentials'));
     document.getElementById('apply-search').addEventListener('click', () => runSearch());
@@ -678,6 +817,19 @@ function getDashboardHtml(webview, nonce) {
       const row = event.target.closest('[data-session-id]');
       if (row) {
         selectSession(row.dataset.sessionId);
+      }
+    });
+
+    els.runtimeStatus.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-runtime-action]');
+      if (!button) {
+        return;
+      }
+      const action = button.dataset.runtimeAction;
+      if (action === 'upgradeRuntime') {
+        post('upgradeLocalRuntime');
+      } else if (action === 'restartTopa') {
+        post('restartTopaDaemon');
       }
     });
 
@@ -892,6 +1044,177 @@ function getDashboardHtml(webview, nonce) {
 
     function quoteToken(value) {
       return /\\s/.test(value) ? '"' + value.replace(/"/g, '') + '"' : value;
+    }
+
+    function renderRuntimeStatus() {
+      const runtime = state.runtime;
+      if (!runtime) {
+        els.runtimeStatus.innerHTML = runtimeCard('tarae', 'idle', 'Runtime', 'Loading runtime status...');
+        els.runtimeIcons.innerHTML = renderRuntimeIcons(null);
+        return;
+      }
+
+      const checked = runtime.checkedAt ? 'checked ' + formatTime(runtime.checkedAt) : '';
+      els.runtimeIcons.innerHTML = renderRuntimeIcons(runtime);
+      els.runtimeStatus.innerHTML = [
+        renderBinaryRuntime('tarae', runtime.tarae, checked),
+        renderTopaRuntime(runtime.topa, runtime.processScanSupported, runtime.processScanError),
+        renderVersionRuntime(runtime.version),
+        renderDaemonRuntime(runtime.daemon)
+      ].join('');
+    }
+
+    function renderBinaryRuntime(name, data, footer) {
+      data = data || {};
+      const tone = binaryTone(data);
+      const status = data.exists
+        ? 'v' + (data.version || 'unknown')
+        : 'not installed';
+      const activity = data.running
+        ? data.processCount + ' running'
+        : 'stopped';
+      const detail = [status, data.error || activity, footer].filter(Boolean).join(' · ');
+      return runtimeCard(name, tone, status, detail, data.path);
+    }
+
+    function renderTopaRuntime(data, processScanSupported, processScanError) {
+      data = data || {};
+      const tone = binaryTone(data);
+      const status = data.exists
+        ? 'v' + (data.version || 'unknown')
+        : 'not installed';
+      const activity = processScanSupported
+        ? data.processCount + ' process' + (data.processCount === 1 ? '' : 'es') + ' · daemon ' + Number(data.daemonCount || 0) + ' · bridge ' + Number(data.bridgeCount || 0)
+        : (processScanError || 'process scan unavailable');
+      return runtimeCard('topa', tone, status, status + ' · ' + (data.error || activity), data.path);
+    }
+
+    function renderVersionRuntime(version) {
+      version = version || {};
+      const tone = versionTone(version);
+      const status = versionStatusLabel(version.status || 'unknown');
+      const detail = version.detail || 'Runtime version status unavailable.';
+      const action = '<button class="secondary" data-runtime-action="upgradeRuntime">Upgrade Runtime</button>';
+      return runtimeCard('runtime version', tone, status, detail, detail, action);
+    }
+
+    function renderDaemonRuntime(daemon) {
+      daemon = daemon || {};
+      const healthy = daemon.healthy === true;
+      const tone = daemonTone(daemon);
+      const status = healthy
+        ? 'healthy'
+        : daemon.metadataExists
+          ? (daemon.state || 'unhealthy')
+          : 'stopped';
+      const pid = daemon.health && daemon.health.pid ? daemon.health.pid : daemon.pid;
+      const version = daemon.health && daemon.health.version ? daemon.health.version : daemon.version;
+      const parts = [
+        pid ? 'pid ' + pid : '',
+        version ? 'v' + version : '',
+        daemon.detail || ''
+      ].filter(Boolean);
+      const action = '<button class="secondary" data-runtime-action="restartTopa">Restart Topa</button>';
+      return runtimeCard('workspace daemon', tone, status, parts.join(' · '), daemon.endpoint || daemon.metadataPath, action);
+    }
+
+    function runtimeCard(label, tone, status, detail, title, actions) {
+      return '<article class="runtime-card" title="' + escapeAttr(title || detail || '') + '">' +
+        '<div class="runtime-heading"><strong>' + escapeHtml(label) + '</strong><span class="status-dot status-' + escapeAttr(tone || 'idle') + '"></span></div>' +
+        '<p><strong>' + escapeHtml(status || '') + '</strong></p>' +
+        '<p>' + escapeHtml(detail || '') + '</p>' +
+        (actions ? '<div class="runtime-actions">' + actions + '</div>' : '') +
+      '</article>';
+    }
+
+    function renderRuntimeIcons(runtime) {
+      if (!runtime) {
+        return [
+          statusIcon('TA', 'idle', 'tarae: loading'),
+          statusIcon('TO', 'idle', 'topa: loading'),
+          statusIcon('D', 'idle', 'workspace daemon: loading'),
+          statusIcon('V', 'idle', 'runtime version: loading')
+        ].join('');
+      }
+      return [
+        statusIcon('TA', binaryTone(runtime.tarae), binaryStatusTitle('tarae', runtime.tarae)),
+        statusIcon('TO', binaryTone(runtime.topa), binaryStatusTitle('topa', runtime.topa)),
+        statusIcon('D', daemonTone(runtime.daemon), daemonStatusTitle(runtime.daemon)),
+        statusIcon('V', versionTone(runtime.version), versionStatusTitle(runtime.version))
+      ].join('');
+    }
+
+    function statusIcon(label, tone, title) {
+      return '<span class="status-icon tone-' + escapeAttr(tone || 'idle') + '" title="' + escapeAttr(title || '') + '" aria-label="' + escapeAttr(title || '') + '">' + escapeHtml(label) + '</span>';
+    }
+
+    function binaryTone(data) {
+      data = data || {};
+      if (!data.exists || data.error) {
+        return 'bad';
+      }
+      return data.running ? 'ok' : 'idle';
+    }
+
+    function daemonTone(daemon) {
+      daemon = daemon || {};
+      if (daemon.healthy) {
+        return 'ok';
+      }
+      if (daemon.state === 'error' || daemon.state === 'invalid-metadata') {
+        return 'bad';
+      }
+      return daemon.metadataExists ? 'warn' : 'idle';
+    }
+
+    function versionTone(version) {
+      version = version || {};
+      if (version.status === 'current') {
+        return 'ok';
+      }
+      if (version.status === 'update-needed' || version.status === 'newer') {
+        return 'warn';
+      }
+      return 'idle';
+    }
+
+    function binaryStatusTitle(name, data) {
+      data = data || {};
+      if (!data.exists) {
+        return name + ': not installed';
+      }
+      const running = data.running ? 'running' : 'stopped';
+      const version = data.version ? 'v' + data.version : 'unknown version';
+      return name + ': ' + running + ' · ' + version;
+    }
+
+    function daemonStatusTitle(daemon) {
+      daemon = daemon || {};
+      if (daemon.healthy) {
+        return 'workspace daemon: running · v' + (daemon.version || 'unknown');
+      }
+      if (daemon.metadataExists) {
+        return 'workspace daemon: ' + (daemon.state || 'unhealthy');
+      }
+      return 'workspace daemon: stopped';
+    }
+
+    function versionStatusTitle(version) {
+      version = version || {};
+      return 'runtime version: ' + versionStatusLabel(version.status || 'unknown') + (version.detail ? ' · ' + version.detail : '');
+    }
+
+    function versionStatusLabel(status) {
+      if (status === 'current') {
+        return 'current';
+      }
+      if (status === 'update-needed') {
+        return 'update needed';
+      }
+      if (status === 'newer') {
+        return 'newer than extension';
+      }
+      return 'unknown';
     }
 
     function renderSessions() {
@@ -1167,6 +1490,14 @@ function getDashboardHtml(webview, nonce) {
       return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
     }
 
+    function formatTime(value) {
+      if (!value) {
+        return '';
+      }
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleTimeString();
+    }
+
     function escapeHtml(value) {
       return String(value || '').replace(/[&<>"']/g, (char) => ({
         '&': '&amp;',
@@ -1183,6 +1514,7 @@ function getDashboardHtml(webview, nonce) {
 
     applySearchPanelState();
     applySidebarSectionState();
+    renderRuntimeStatus();
     renderSearchPresets();
     post('loadDashboard', { selectedSessionId: state.selectedSessionId });
   </script>

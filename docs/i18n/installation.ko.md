@@ -75,7 +75,7 @@ tarae --version
 릴리스 버전으로 업그레이드:
 
 ```bash
-~/.tarae/bin/tarae upgrade --ref v0.1.9 --project-root "$PWD"
+~/.tarae/bin/tarae upgrade --ref v0.1.10 --project-root "$PWD"
 ```
 
 VS Code 확장을 사용하는 경우 확장 업데이트 후 위 업그레이드가 자동으로 실행됩니다. 자동 업그레이드는 현재 워크스페이스의 `topa` daemon만 중지하고 다른 프로젝트에는 영향을 주지 않습니다. 실패했거나 즉시 재시도하려면 Command Palette에서 `Tarae: Upgrade Local Runtime`을 실행합니다.
@@ -83,7 +83,7 @@ VS Code 확장을 사용하는 경우 확장 업데이트 후 위 업그레이�
 `upgrade` 명령이 없던 예전 설치본은 설치 스크립트를 다시 실행합니다:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.9 bash
+curl -fsSL https://raw.githubusercontent.com/InsightFrom/tarae/main/scripts/install.sh | TARAE_REF=v0.1.10 bash
 ```
 
 아직 릴리스되지 않은 branch를 검증할 때는 최신 릴리스 asset을 받지 말고 source에서 `topa`를 빌드합니다:

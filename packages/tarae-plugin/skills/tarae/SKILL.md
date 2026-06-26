@@ -26,6 +26,8 @@ Use Tarae as a bidirectional project memory layer: write progress with lifecycle
 4. Call `report_issue` when a build, test, or runtime failure matters.
 5. Call `end_session` when the task is complete.
 
+Write `checkpoint.summary` and `end_session.summary` in the user's language from the conversation. This is mandatory. If the user is writing Korean, write those summaries in Korean.
+
 ## History Tools
 
 - `list_sessions(project_root, limit, status)`: show recent local sessions.
